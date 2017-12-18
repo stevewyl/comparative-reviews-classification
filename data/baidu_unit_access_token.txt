@@ -1,0 +1,11 @@
+{
+	"access_token":"24.8ba22f3fc9bc0ce3b0c3e12278a20e8f.2592000.1514118781.282335-10435290",
+	"session_key":"9mzdA8gX3mFP3FesnKIerZ9BVC8GgOk38DQneo+fMt26n7LJEXR\/hcSSwhYPgCYbQBCrUvUZBE8dqFio9j\/9TIrRwcS+1g==",
+	"scope":"public nlp_simnet nlp_wordemb nlp_comtag nlp_dnnlm_cn brain_nlp_lexer brain_all_scope brain_nlp_comment_tag brain_nlp_dnnlm_cn brain_nlp_word_emb_vec brain_nlp_word_emb_sim brain_nlp_sentiment_classify brain_nlp_simnet brain_nlp_depparser brain_nlp_wordembedding brain_nlp_dnnlm_cn_legacy brain_nlp_simnet_legacy brain_nlp_comment_tag_legacy brain_nlp_lexer_custom wise_adapt lebo_resource_base lightservice_public hetu_basic lightcms_map_poi kaidian_kaidian ApsMisTest_Test\u6743\u9650 vis-classify_flower bnstest_fasf lpq_\u5f00\u653e",
+	"refresh_token":"25.f44d5b413ec0057779993a2a162e72ed.315360000.1826886781.282335-10435290",
+	"session_secret":"3215485b21fcc13fc84acdc0a9be095a",
+	"expires_in":2592000
+}
+
+https://aip.baidubce.com/rpc/2.0/nlp/v1/lexer?access_token=24.6fb91aec60de3d07bfbf93869c5d2840.2592000.1514119295.282335-10435290&Content-Type=application/json
+&text='然后和之前的红米2比较待机时间，八小时掉10 红米2才掉2。'
