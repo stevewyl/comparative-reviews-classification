@@ -224,8 +224,8 @@ def SelfAtt(max_words, embed_size, vocab_cnt, gru_units,
     return model
 
 def HAN(max_words, max_sents, embed_size, vocab_cnt, gru_units,
-         drop_prob, re_drop, num_labels, fc_units, classifier,
-         loss_function, activation_func, pre_trained, embedding_matrix):
+        drop_prob, re_drop, num_labels, fc_units, classifier,
+        loss_function, activation_func, pre_trained, embedding_matrix):
     sent_inputs = Input(shape=(max_words,), dtype = 'float64')
     embed = embedding_layers(vocab_cnt, embed_size, max_words,
                              embedding_matrix, pre_trained)(sent_inputs)
@@ -313,6 +313,65 @@ def get_attention(sent_model, doc_model, sequences, topN = 5):
     sent_all_att = np.array(sent_all_att)
     
     return sent_all_att, sent_att, doc_att, actual_word_idx
+
+def char_word_HAN(max_words, max_sents, embed_size, vocab_cnt, gru_units,
+                  drop_prob, re_drop, num_labels, fc_units, classifier,
+                  loss_function, activation_func, pre_trained, embedding_matrix):
+    word_sent_inputs = Input(shape=(max_words[0],), dtype='float64')
+    word_embed = embedding_layers(vocab_cnt[0], embed_size, max_words[0],
+                                  embedding_matrix[0], pre_trained)(word_sent_inputs)
+    word_sent_enc = Bidirectional(GRU(gru_units[0], dropout=drop_prob[0],
+                                      recurrent_dropout=re_drop[0],
+                                      return_sequences=True))(word_embed)
+    word_sent_att = AttLayer(name='AttLayer')(word_sent_enc)
+    word_sent_model = Model(word_sent_inputs, word_sent_att)
+
+    word_doc_inputs = Input(shape=(max_sents[0], max_words[0]), 
+                            dtype='float64',
+                            name='word_inputs')
+    word_doc_emb = TimeDistributed(word_sent_model)(word_doc_inputs)
+    word_doc_enc = Bidirectional(GRU(gru_units[1], dropout=drop_prob[1],
+                                     recurrent_dropout=re_drop[1],
+                                     return_sequences=True))(word_doc_emb)
+    word_doc_att = AttLayer(name='AttLayer_word')(word_doc_enc)
+
+    word_fc1_drop = Dropout(drop_prob[1])(word_doc_att)
+    word_fc1 = Dense(fc_units, activation=activation_func,
+                     kernel_initializer='he_normal')(word_fc1_drop)
+    word_fc2_drop = Dropout(drop_prob[2])(word_fc1)
+
+    char_sent_inputs = Input(shape=(max_words[1],), dtype='float64')
+    char_embed = embedding_layers(vocab_cnt[1], embed_size, max_words[1],
+                                  embedding_matrix[1], pre_trained)(char_sent_inputs)
+    char_sent_enc = Bidirectional(GRU(gru_units[0], dropout=drop_prob[0],
+                                      recurrent_dropout=re_drop[0],
+                                      return_sequences=True))(char_embed)
+    char_sent_att = AttLayer(name='AttLayer')(char_sent_enc)
+    char_sent_model = Model(char_sent_inputs, char_sent_att)
+
+    char_doc_inputs = Input(shape=(max_sents[1], max_words[1]), 
+                            dtype='float64',
+                            name='char_inputs')
+    char_doc_emb = TimeDistributed(char_sent_model)(char_doc_inputs)
+    char_doc_enc = Bidirectional(GRU(gru_units[1], dropout=drop_prob[1],
+                                recurrent_dropout=re_drop[1],
+                                return_sequences=True))(char_doc_emb)
+    char_doc_att = AttLayer(name='AttLayer_char')(char_doc_enc)
+
+    char_fc1_drop = Dropout(drop_prob[1])(char_doc_att)
+    char_fc1 = Dense(fc_units, activation=activation_func,
+                     kernel_initializer='he_normal')(char_fc1_drop)
+    char_fc2_drop = Dropout(drop_prob[2])(char_fc1)
+    
+    merge_info = concatenate([word_fc2_drop, char_fc2_drop], axis=1)
+    output = Dense(num_labels, activation=classifier, name = 'out')(merge_info)
+
+    model = Model(inputs=[word_doc_inputs, char_doc_inputs], outputs=output)
+
+    model.compile(loss = loss_function,
+                  optimizer = 'adam',
+                  metrics = ['accuracy'])
+    return model
 
 def one_hot_mdoel(x, y, classifier):
     pass

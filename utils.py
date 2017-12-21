@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 from plotly.offline import plot
 import plotly.figure_factory as ff
 from aip import AipNlp
+from flashtext import KeywordProcessor
 import math
 
 # 连接数据库获取所有文本语料
@@ -569,9 +570,8 @@ def customed_heatmap(all_att, text_sent, n_limit, date, label):
         z.append(value)
         symbol.append(text)
     hover = symbol
-    colorscale = [[0.0, '#FFFFFF'], [.1, '#87CEFF'], 
-                  [.2, '#00BFFF'], [.4, '#0000AA'], 
-                  [.6, '#00008B'],[1.0, '#191970']]
+    colorscale = [[0.0, '#FFFFFF'],[.5, '#00BFFF'], 
+                  [.75, '#00008B'],[1.0, '#191970']]
     pt = ff.create_annotated_heatmap(z, annotation_text=symbol, text=hover,
                                      colorscale=colorscale, 
                                      font_colors=['black'], 
@@ -584,3 +584,45 @@ def customed_heatmap(all_att, text_sent, n_limit, date, label):
     else:
         plot(pt, image_width = 1200, image_height = 200)
 
+# 修正分词错误
+def fix_segment(segmented_text):
+    keyword_processor = KeywordProcessor()
+    fix_word = pd.read_csv('./data/baidu_wrong_segment.csv')
+    fix_word = fix_word.fillna('')
+    wrong = fix_word['wrong'].tolist()
+    correct = fix_word['correct'].tolist()
+    for i in range(fix_word.shape[0]):    
+        keyword_processor.add_keyword(wrong[i], correct[i])
+    segmented_text = [keyword_processor.replace_keywords(sent) for sent in segmented_text]
+    return segmented_text
+
+# 列数据分箱操作
+def binning(col, cut_points, labels=None):
+  minval = col.min()
+  maxval = col.max()
+  break_points = [minval] + cut_points + [maxval]
+  if not labels:
+      labels = range(len(cut_points)+1)
+  colBin = pd.cut(col,bins=break_points,labels=labels,include_lowest=True)
+  return colBin
+
+def check_data_info(df):
+    avg_comp_len = np.mean(df[(df['Yes/No'] == 1) & (df['H'] == 0)]['cleaned_reviews'].apply(lambda x: len(x.split())).tolist())
+    avg_non_comp_len = np.mean(df[df['Yes/No'] == 0]['cleaned_reviews'].apply(lambda x: len(x.split())).tolist())
+    avg_comp_len_sp = [np.mean(df[(df['差比'] == 1) & (df['H'] == 0)]['cleaned_reviews'].apply(lambda x: len(x.split())).tolist()),
+                      np.mean(df[(df['差比'] == 2) & (df['H'] == 0)]['cleaned_reviews'].apply(lambda x: len(x.split())).tolist()),
+                      np.mean(df[(df['差比'] == 3) & (df['H'] == 0)]['cleaned_reviews'].apply(lambda x: len(x.split())).tolist())]
+    avg_equal_len = np.mean(df[(df['平比'] == 1) & (df['H'] == 0)]['cleaned_reviews'].apply(lambda x: len(x.split())).tolist())
+    avg_hidden_len = np.mean(df[df['H'] == 1]['cleaned_reviews'].apply(lambda x: len(x.split())).tolist())
+    avg_len = np.mean(df['cleaned_reviews'].apply(lambda x: len(x.split())).tolist())
+    
+    print('review length details:\n')
+    print('所有评论平均词数: ', int(avg_len))
+    print('比较句: ', int(avg_comp_len))
+    print('非比较句: ', int(avg_non_comp_len))
+    print('平比句: ', int(avg_equal_len))
+    print('差比句: ', int(avg_comp_len_sp[0]))
+    print('不同句: ', int(avg_comp_len_sp[1]))
+    print('极比句: ', int(avg_comp_len_sp[2]))
+    print('隐性比较句: ', int(avg_hidden_len))
+    

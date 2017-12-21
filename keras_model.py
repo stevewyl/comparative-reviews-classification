@@ -38,28 +38,15 @@ from model_library import TextCNNBN, TextInception, convRNN, HAN, SelfAtt
 from model_library import AttLayer
 from model_library import get_attention
 from utils import plot_loss_accuray, save_txt_data, split_sent
-from utils import shuffle_split_datasets, plot_roc_curve, customed_heatmap 
+from utils import shuffle_split_datasets, plot_roc_curve, customed_heatmap
 
-# load data
-def load_data(fname, column_name = 'cut_reviews'):
-    df = pd.read_csv('./data/' + fname, header = None)
-    df.columns = [column_name]
-    return df
-
-def read_x_data(mode):
-    if mode == 'csv':
-        comp = load_data('comp_reviews_word_03.csv')
-        non = load_data('non_comp_reviews_word_03.csv')
-        hidden = load_data('hidden_reviews_word_03.csv')
-        not_hidden = load_data('not_hidden_reviews_word_03.csv')
-    elif mode == 'xlsx':
-        df = pd.read_excel('./data/jd_comp_final_v3.xlsx')
-        hidden_index = df.index[df['H'] == 1].tolist()
-        comp = df[df['Yes/No'] == 1]['cleaned_reviews']
-        non = df[df['Yes/No'] == 0]['cleaned_reviews']
-        hidden = df[df['H'] == 1]['cleaned_reviews']
-        not_hidden = df[(df['Yes/No'] == 1) & (df['H'] == 0)]['cleaned_reviews']
-
+def read_x_data(filename):
+    df = pd.read_excel(filename)
+    hidden_index = df.index[df['H'] == 1].tolist()
+    comp = df[df['Yes/No'] == 1]['cleaned_reviews']
+    non = df[df['Yes/No'] == 0]['cleaned_reviews']
+    hidden = df[df['H'] == 1]['cleaned_reviews']
+    not_hidden = df[(df['Yes/No'] == 1) & (df['H'] == 0)]['cleaned_reviews']
     print('text data load succeed')
     return comp, non, hidden, not_hidden, hidden_index
 
@@ -84,11 +71,12 @@ def load_embeddings(fname, vocab, n_dim):
 def get_x_y(dataset, mode):
     x, y = [], []
     for i in range(len(dataset)):
-        if mode == 'csv':
-            x = x + dataset[i]['cut_reviews'].tolist()
-        else:
-            x = x + dataset[i].tolist()
+        x += dataset[i].tolist()
         y += [i for _ in range(dataset[i].shape[0])]
+    if mode == 'char':
+        x = [re.sub(' ','',sent) for sent in x]
+        x = [[char for char in sent] for sent in x]
+        x = [' '.join(sent) for sent in x]
     return x, y
 
 # 对文本进行序列化处理
@@ -100,7 +88,6 @@ def get_sequences(tokenizer, train_data, mode, max_length):
             padded_seqs = pad_sequences(word_ids, maxlen = max_length)
             res.append(padded_seqs)
         return res
-
     elif mode == 'text':
         word_ids = tokenizer.texts_to_sequences(train_data)
         padded_seqs = pad_sequences(word_ids, maxlen = max_length)
@@ -174,25 +161,25 @@ def model_build(name, num_labels, max_words, pre_trained, plot_structure = False
         loss_function = 'categorical_crossentropy'
 
     if name == 'convRNN':
-        model = convRNN(max_words, EMBED_DIMS, len(vocab), 256, 0.2, [384,256],
-                        1, 'same', 4, 128, 'relu', num_labels, classifier,
+        model = convRNN(max_words, EMBED_DIMS, len(vocab), 256, 0.25, [384,256],
+                        1, 'same', 5, 128, ACTIVATION, num_labels, classifier,
                         loss_function, pre_trained, embedding_matrix)
     elif name == 'TextCNNBN':
         model = TextCNNBN(max_words, EMBED_DIMS, len(vocab), [3,4,5], [256,128],
-                          4, 'same', 256, num_labels, 'relu', classifier,
+                          4, 'same', 256, num_labels, ACTIVATION, classifier,
                           loss_function, pre_trained, embedding_matrix)
     elif name == 'Inception':
         model = TextInception(max_words, EMBED_DIMS, len(vocab),
                               [[1],[1,3],[3,5],[3]], [256,128], 'same', 0.5,
-                              256, num_labels, 'relu', classifier, loss_function,
-                              pre_trained, embedding_matrix)
+                              256, num_labels, ACTIVATION, classifier, 
+                              loss_function, pre_trained, embedding_matrix)
     elif name == 'HAN':
         model = HAN(max_words, MAX_SENTS, EMBED_DIMS, len(vocab), [256,128],
-                    [0.4,0.3,0.15], [0.25,0.15], num_labels, 64, classifier, loss_function,
-                    'relu', pre_trained, embedding_matrix)
+                    [0.4,0.25,0.15], [0.25,0.15], num_labels, 64, classifier, loss_function,
+                    ACTIVATION, pre_trained, embedding_matrix)
     elif name == 'SHAN':
         model = SelfAtt(max_words, EMBED_DIMS, len(vocab), 256, 0.5, 0.25,
-                        num_labels, 64, classifier, loss_function, 'relu',
+                        num_labels, 64, classifier, loss_function, ACTIVATION,
                         pre_trained, embedding_matrix)
     else:
         print('This model does not exist in model_library.py')
@@ -231,7 +218,10 @@ def cv_train(x, y, batch_size, n_epochs, num_labels, max_words,
         y_test = to_categorical([y[index] for index in test_index])
         x_train = np.array(get_sequences(tokenizer, X_train, text_mode, max_words))
         x_test = np.array(get_sequences(tokenizer, X_test, text_mode, max_words))
-        _, model = model_build(model_name, num_labels, max_words, pre_trained)
+        if model_name == 'HAN':
+            _, model = model_build(model_name, num_labels, max_words, pre_trained)
+        else:
+            model = model_build(model_name, num_labels, max_words, pre_trained)
         model.fit(x_train, y_train,
                   batch_size = batch_size,
                   epochs = n_epochs,
@@ -281,7 +271,7 @@ def single_training(model, x, y, batch_size, n_epochs, test_size, num_labels,
     predicted = model.predict(x[1])
     y_true = np.argmax(y[1], axis = 1)
     y_pred = np.argmax(predicted, axis = 1)
-    print("accuracy score: {:.3f}".format(accuracy_score(y_true, y_pred)))
+    print("\naccuracy score: {:.3f}".format(accuracy_score(y_true, y_pred)))
     print("\nconfusion matrix\n")
     print(confusion_matrix(y_true, y_pred))
     print("\nclassification report\n")
@@ -297,7 +287,7 @@ def model_predict(model_file, weigths_file, test_data):
     return best_model
     
 # 可视化attention权重
-def visualize_attention(x_test, y_true, sent_model, doc_model, date, reviews_length, word2idx, label):
+def visualize_attention(x_test, y_true, sent_model, doc_model, date, word2idx, label):
     print('Label:', str(label))
     x_samples = np.array([x_test[k] for k,v in enumerate(y_true) if v == label])
     #x_length = np.array([reviews_length[k] for k,v in enumerate(y_true) if v == label])
@@ -323,7 +313,10 @@ def visualize_attention(x_test, y_true, sent_model, doc_model, date, reviews_len
 def train(CV, x, y, tokenizer, date):
     if not CV:
         # 模型初始化
-        sent_MODEL, doc_MODEL = model_build(MODEL_NAME, NUM_LABELS, MAX_WORDS, PRE_TRAINED)
+        if MODEL_NAME == 'HAN':
+            sent_MODEL, doc_MODEL = model_build(MODEL_NAME, NUM_LABELS, MAX_WORDS, PRE_TRAINED)
+        else:
+            doc_MODEL = model_build(MODEL_NAME, NUM_LABELS, MAX_WORDS, PRE_TRAINED)
         # 切分训练集和测试集
         if CHECK_HIDDEN:
             X_train, X_test, Y_train, Y_test, test_idx = shuffle_split_datasets(x, y)
@@ -353,14 +346,15 @@ def train(CV, x, y, tokenizer, date):
         # 可视化
         if MODEL_NAME == 'HAN' and ATTENTION_V:
             print('attention weights visualization...')
-            sent_all_att_0, sent_att_0, doc_att_0 = visualize_attention(x_test, y_true, sent_MODEL, doc_MODEL, date, reviews_length, word2idx, 0)
-            sent_all_att_1, sent_att_1, doc_att_1 = visualize_attention(x_test, y_true, sent_MODEL, doc_MODEL, date, reviews_length, word2idx, 1)
+            sent_all_att_0, sent_att_0, doc_att_0 = visualize_attention(x_test, y_true, sent_MODEL, doc_MODEL, date, word2idx, 0)
+            sent_all_att_1, sent_att_1, doc_att_1 = visualize_attention(x_test, y_true, sent_MODEL, doc_MODEL, date, word2idx, 1)
         
         #print('plotting roc curve...')
         #plot_roc_curve(Y_test, prob, NUM_LABELS, 1)
         
         # best_model = model_predict('','', x_test[0:20])
-        return [w_r_idx, sent_all_att_0, sent_att_0, doc_att_0]
+        # return [w_r_idx, sent_all_att_0, sent_att_0, doc_att_0]
+        return w_r_idx
 
     else:
         all_res = {}
@@ -382,44 +376,44 @@ def train(CV, x, y, tokenizer, date):
             print('\n')
             pprint(res)
             print("--- %s seconds ---" % (time.time() - start_time))
-            print('waiting 180 seconds...')
-            time.sleep(180)
+            if FOLDS_EPOCHS > 1:
+                print('waiting 180 seconds...')
+                time.sleep(180)
         return all_res
 
 if __name__ == '__main__':
     # 读入数据
-    DATA_FORMAT = 'xlsx'
-    comp, non, hidden, not_hidden, hidden_index = read_x_data(DATA_FORMAT)
+    comp, non, hidden, not_hidden, hidden_index = read_x_data('./data/jd_comp_final_v3.xlsx')
 
     # 一些参数（包含训练超参）
-    DATASET = [comp, non]
+    DATASET = [not_hidden, non]
     SHOW_SAMPLES_CNT = 15
     MAX_WORDS = 100
-    MAX_SENTS = 6
     MODEL_NAME = 'HAN'
     CUT_MODE = 'simple'
     TEXT_FORMAT = 'text'
+    ACTIVATION = 'relu'
     BATCH_SIZE = 64
     N_EPOCHS = 3
     TEST_SIZE = 0.2
     NUM_LABELS = len(DATASET)
-    EMBED_DIMS = 256
-    EMBED_FILES = './data/vectors_256d_20171217_1.txt'
-    PRE_TRAINED = True
-    CV = True
+    EMBED_FILE = './data/embeddings/char_vectors_256d_20171219_1.txt'
+    EMBED_TYPE = re.findall(r'(?<=/)\w+(?=_v)',EMBED_FILE)[0]
+    EMBED_DIMS = int(re.findall(r'(?<=_)\d+(?=d)',EMBED_FILE)[0])
+    PRE_TRAINED = True if EMBED_FILE else False #是否使用与训练的词向量
     N_FOLDS = 10
-    CHECK_HIDDEN = False # 是否检查隐性比较句的错误情况
-    FOLDS_EPOCHS = 5
-    ATTENTION_V = True
+    FOLDS_EPOCHS = 1
+    CV = False #是否进行交叉验证
+    CHECK_HIDDEN = False #是否检查隐性比较句的错误情况
+    ATTENTION_V = False #是否可视化attention权重
 
     # 整理数据格式
-    x, y = get_x_y(DATASET, DATA_FORMAT)
+    x, y = get_x_y(DATASET, EMBED_TYPE)
     x_copy = x
-    reviews_length = np.array([len(sent.split()) for sent in x_copy])
+    # reviews_length = np.array([len(sent.split()) for sent in x_copy])
 
     # 按空格切词，去除低频词
-    tokenizer = Tokenizer(num_words = 25000,
-                          filters = '!"#$%&()*+,-./:;<=>?@[\\]^_`{|}~\t\n',
+    tokenizer = Tokenizer(filters = '!"#$%&()*+,-./:;<=>?@[\\]^_`{|}~\t\n',
                           lower = True, split = " ")
     tokenizer.fit_on_texts(x)
     vocab = tokenizer.word_index
@@ -434,7 +428,13 @@ if __name__ == '__main__':
     # HAN模型需要的文本输入格式
     if MODEL_NAME == 'HAN':
         print('prepare inputs for HAN model...')
-        MAX_WORDS = 20
+        if EMBED_TYPE == 'word':
+            MAX_WORDS = 20
+            MAX_SENTS = 6
+        elif EMBED_TYPE == 'char':
+            MAX_WORDS = 30
+            MAX_SENTS = 6
+            N_EPOCHS = 3
         N_LIMIT = MAX_WORDS * MAX_SENTS
         x = [split_sent(sent, MAX_WORDS, MAX_SENTS, CUT_MODE) for sent in x]
         TEXT_FORMAT = 'seq'
@@ -445,9 +445,9 @@ if __name__ == '__main__':
     # 读入预训练的词向量矩阵
     if PRE_TRAINED:
         print('loading word embeddings...')
-        embedding_matrix = load_embeddings(EMBED_FILES, vocab, EMBED_DIMS)
+        embedding_matrix = load_embeddings(EMBED_FILE, vocab, EMBED_DIMS)
 
     # 单次训练还是交叉验证训练
-    print('model ' + MODEL_NAME + ' start training...')
+    print(EMBED_TYPE + ' model ' + MODEL_NAME + ' start training...')
     #time.sleep(3600)
     result = train(CV, x, y, tokenizer, DATE)
