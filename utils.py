@@ -13,6 +13,7 @@ from sklearn.model_selection import StratifiedKFold
 from langconv import *
 import matplotlib.pyplot as plt
 from plotly.offline import plot
+import plotly.graph_objs as go
 import plotly.figure_factory as ff
 from aip import AipNlp
 from flashtext import KeywordProcessor
@@ -58,14 +59,14 @@ def strQ2B(sent):
 # 保存为txt文件
 def save_txt_data(filename, text, mode):
     file = open(filename, 'w', encoding = 'utf-8')
-    if mode == 'text':
-        for sent in text:
-            file.write(sent)
-            file.write('\n')
-        file.close()
-        wrong_len = [len(sent.split()) for sent in text]
-        print('avg_len wrong: ', np.mean(wrong_len))
 
+    for sent in text:
+        file.write(sent)
+        file.write('\n')
+    file.close()
+    wrong_len = [len(sent.split()) for sent in text]
+    print('avg_len wrong: ', np.mean(wrong_len))
+    '''
     elif mode == 'seq':
         new_text = [re.sub('UNK', '', ' '.join(seq)) for seq in text]
         for sent in new_text:
@@ -74,7 +75,7 @@ def save_txt_data(filename, text, mode):
         file.close()
         wrong_len = [len(sent.split()) for sent in new_text]
         print('avg_len wrong: ', np.mean(wrong_len))
-
+    '''
 
 # 按行读入评论
 def read_line_data(filename, is_dict = False):
@@ -295,6 +296,8 @@ def clean_text(text):
         sent = sent.strip()
         if len(sent) > 5:
             new.append(sent)
+        else:
+            new.append('')
     return new
 
 # 正则切分英文字母和数字（暂弃）
@@ -363,18 +366,24 @@ def segment_sent(text, method = 'jieba'):
 # 调用百度api进行分词
 def baidu_segment(client, text):
     result = []
-    for sent in text:
+    for k,sent in enumerate(text):
+        if k % 2000 == 0: print(k)
         sent = re.sub(' ', '', sent)
         try:
-            res = AipNlp.lexer(client, text = sent)
+            res = client.lexer(text = sent)
             seg_text = [word['item'] for word in res['items']]
             seg_text = [word for word in seg_text if word != ' ' and len(word) < 10]
             if len(seg_text) > 2:
                 result.append(' '.join(seg_text))
+            else:
+                result.append('')
         except:
+            print('jieba')
             new_sent = ' '.join(jieba.cut(sent))
             if len(new_sent) > 2:
                 result.append(new_sent)
+            else:
+                result.append('')
     return result
 
 # 查看分词情况
@@ -436,7 +445,24 @@ def check_punc(sent):
         return 2
     else:
         return 3
-
+    
+def collect_sent_len(x):
+    res = []
+    for sent in x:
+        n_comma = sent.count('，')
+        n_stop = sent.count('。')
+        n_question = sent.count('？')
+        n_exc = sent.count('！')
+        total = n_comma + n_stop + n_question + n_exc
+        if total == 0:
+            res.append(5)
+        elif n_stop > 10 or n_question > 10 or n_exc > 10:
+            res.append(int(total-n_comma)/2)
+        elif n_comma > 15:
+            res.append(int(n_comma /3))
+        else:
+            res.append(len(re.split('。|！|？',sent)))
+    return res            
 # 补齐或截断文本
 def standardize_split_sent(splited, interval, n_sents):
     if len(splited) <= n_sents:
@@ -471,13 +497,14 @@ def cut_sent_by_punc(punc_split, interval):
                     tmp = len_list[i]
         if i == len(punc_split) - 1:
             splited.append(punc_split[start:i+1])
-    splited = ['，'.join(sent) + ' 。' for sent in splited]
+    splited = [' '.join(sent) for sent in splited]
     splited[-1] = splited[-1][0:-2]
     return splited
 
 # 按一定规则切分句子
 def split_sent(sent, interval, n_sents, mode):
     sent_split = sent.split()
+    sent_sub = re.sub(r'(。|！|？)', '\\1 cut ', sent)
     if mode == 'simple':
         splited = [sent_split[i:i+interval] for i in range(0, len(sent_split), interval)]
         splited = [' '.join(sent) for sent in splited]
@@ -489,21 +516,23 @@ def split_sent(sent, interval, n_sents, mode):
             splited = [' '.join(sent) for sent in splited]
             return standardize_split_sent(splited, interval, n_sents)
         elif res == 1:
-            punc_split = re.split('。 |！ |？ ', sent)
+            punc_split = re.split(' cut ', sent_sub)
             splited = cut_sent_by_punc(punc_split, interval)
             return standardize_split_sent(splited, interval, n_sents)
         elif res == 2:
-            punc_split = re.split('， |。 |！ |？ ', sent)
+            sent_sub = re.sub(r'(，)', '\\1 cut ', sent)
+            punc_split = re.split(' cut ', sent_sub)
             splited = cut_sent_by_punc(punc_split, interval)
             return standardize_split_sent(splited, interval, n_sents)
         else:
-            punc_split = re.split('。 |！ |？ ', sent)
+            punc_split = re.split(' cut ', sent_sub)
             sent_len = [len(each.split()) for each in punc_split]
             if len(sent_len) == 1:
                 if sent_len[0] < interval + 5:
                     return standardize_split_sent(punc_split, interval, n_sents)
                 else:
-                    comma_split = re.split('， ', sent)
+                    sent_sub = re.sub(r'(，)', '\\1 cut ', sent)
+                    comma_split = re.split(' cut ', sent_sub)
                     splited = cut_sent_by_punc(comma_split, interval)
                     return standardize_split_sent(splited, interval, n_sents)
             else:
@@ -556,33 +585,54 @@ def annotated_heatmap(values, text):
         fig.layout.annotations[i].font.size = 8
     plot(fig, image_width = 1500, image_height = 300)
 
-def customed_heatmap(all_att, text_sent, n_limit, date, label):
-    z, symbol = [], []
-    for i in range(len(text_sent)):
-        idx_text = {k:word for k,word in enumerate(text_sent[i]) if word != 'UNK'}
-        idx = list(idx_text.keys())
-        text = list(idx_text.values())
-        value = list(all_att[i][idx])
-        num_words = len(text)
-        total_words = math.ceil(num_words/float(n_limit))*n_limit
-        text = text + [' '] * (total_words-num_words)
-        value = value + [0] * (total_words-num_words)
-        z.append(value)
-        symbol.append(text)
-    hover = symbol
-    colorscale = [[0.0, '#FFFFFF'],[.5, '#00BFFF'], 
-                  [.75, '#00008B'],[1.0, '#191970']]
-    pt = ff.create_annotated_heatmap(z, annotation_text=symbol, text=hover,
-                                     colorscale=colorscale, 
-                                     font_colors=['black'], 
-                                     hoverinfo='text')
-    for i in range(len(pt.layout.annotations)):
-        pt.layout.annotations[i].font.size = 6
-    if label == 0:
-        file_name = './result/attention_visualization_' + date + '.html'
-        plot(pt, filename = file_name, image_width = 1200, image_height = 200)
-    else:
-        plot(pt, image_width = 1200, image_height = 200)
+def customed_heatmap(all_att, text_sent, n_limit, date, label, text_type):
+    if text_type == 'sent':
+        z, symbol = [], []
+        for i in range(len(text_sent)):
+            idx_text = {k:word for k,word in enumerate(text_sent[i]) if word != 'UNK'}
+            idx = list(idx_text.keys())
+            text = list(idx_text.values())
+            value = list(all_att[i][idx])
+            num_words = len(text)
+            total_words = math.ceil(num_words/float(n_limit))*n_limit
+            text = text + [' '] * (total_words-num_words)
+            value = value + [0] * (total_words-num_words)
+            z.append(value)
+            symbol.append(text)
+        hover = symbol
+        colorscale = [[0.0, '#FFFFFF'],[.5, '#00BFFF'], 
+                      [.75, '#00008B'],[1.0, '#191970']]
+        pt = ff.create_annotated_heatmap(z, annotation_text=symbol, text=hover,
+                                         colorscale=colorscale, 
+                                         font_colors=['black'], 
+                                         hoverinfo='text')
+        for i in range(len(pt.layout.annotations)):
+            pt.layout.annotations[i].font.size = 10
+        if label == 0:
+            file_name = './result/sent_attention_visualization_' + date + '.html'
+            plot(pt, filename = file_name, image_width = 1200, image_height = 200)
+        else:
+            plot(pt, image_width = 1200, image_height = 200)
+    elif text_type == 'doc':
+        
+        colorscale = [[0.0, '#FFFFFF'],[.25, '#EEB4B4'], 
+                      [.5, '#EE6A50'],[1.0, '#EE0000']]
+        x_label = ['DOC_' + str(i+1) for i in range(all_att.shape[1])]
+        y_label = ['Sub_sent_' + str(i+1) for i in range(all_att.shape[0])][::-1]
+        data = [
+            go.Heatmap(
+                z=all_att,
+                x=x_label,
+                y=y_label,
+                colorscale=colorscale,
+            )
+        ]
+        fig = go.Figure(data=data)
+        if label == 0:
+            file_name = './result/doc_attention_visualization_' + date + '.html'
+            plot(fig, filename=file_name)
+        else:
+            plot(fig)
 
 # 修正分词错误
 def fix_segment(segmented_text):
@@ -596,33 +646,65 @@ def fix_segment(segmented_text):
     segmented_text = [keyword_processor.replace_keywords(sent) for sent in segmented_text]
     return segmented_text
 
+# 根据字典抽取关键字
+def extract_keyword(keyword_list, text):
+    keyword_processor = KeywordProcessor()
+    text = [re.sub(' ','',p) for p in text]
+    res = []
+    for word in keyword_list:
+        keyword_processor.add_keyword(word)
+    for phrase in text:
+        keywords_found = keyword_processor.extract_keywords(phrase.lower())
+        keywords_found = list(set(keywords_found))
+        if len(keywords_found) > 0:
+            res.append(keywords_found[0])
+        else:
+            res.append('')
+    return res
+
 # 列数据分箱操作
 def binning(col, cut_points, labels=None):
-  minval = col.min()
-  maxval = col.max()
-  break_points = [minval] + cut_points + [maxval]
-  if not labels:
-      labels = range(len(cut_points)+1)
-  colBin = pd.cut(col,bins=break_points,labels=labels,include_lowest=True)
-  return colBin
+    minval = col.min()
+    maxval = col.max()
+    break_points = [minval] + cut_points + [maxval]
+    if not labels:
+        labels = range(len(cut_points)+1)
+    colBin = pd.cut(col,bins=break_points,labels=labels,include_lowest=True)
+    return colBin
 
 def check_data_info(df):
-    avg_comp_len = np.mean(df[(df['Yes/No'] == 1) & (df['H'] == 0)]['cleaned_reviews'].apply(lambda x: len(x.split())).tolist())
-    avg_non_comp_len = np.mean(df[df['Yes/No'] == 0]['cleaned_reviews'].apply(lambda x: len(x.split())).tolist())
-    avg_comp_len_sp = [np.mean(df[(df['差比'] == 1) & (df['H'] == 0)]['cleaned_reviews'].apply(lambda x: len(x.split())).tolist()),
-                      np.mean(df[(df['差比'] == 2) & (df['H'] == 0)]['cleaned_reviews'].apply(lambda x: len(x.split())).tolist()),
-                      np.mean(df[(df['差比'] == 3) & (df['H'] == 0)]['cleaned_reviews'].apply(lambda x: len(x.split())).tolist())]
-    avg_equal_len = np.mean(df[(df['平比'] == 1) & (df['H'] == 0)]['cleaned_reviews'].apply(lambda x: len(x.split())).tolist())
-    avg_hidden_len = np.mean(df[df['H'] == 1]['cleaned_reviews'].apply(lambda x: len(x.split())).tolist())
-    avg_len = np.mean(df['cleaned_reviews'].apply(lambda x: len(x.split())).tolist())
-    
+    not_hidden_comp_text = df[(df['Yes/No'] == 1) & (df['H'] == 0)]['cleaned_reviews'].apply(lambda x: len(x.split())).tolist()
+    non_comp_text = df[df['Yes/No'] == 0]['cleaned_reviews'].apply(lambda x: len(x.split())).tolist()
+    comp_text= [df[(df['差比'] == 1) & (df['H'] == 0)]['cleaned_reviews'].apply(lambda x: len(x.split())).tolist(),
+                      df[(df['差比'] == 2) & (df['H'] == 0)]['cleaned_reviews'].apply(lambda x: len(x.split())).tolist(),
+                      df[(df['差比'] == 3) & (df['H'] == 0)]['cleaned_reviews'].apply(lambda x: len(x.split())).tolist()]
+    equal_text = df[(df['平比'] == 1) & (df['H'] == 0)]['cleaned_reviews'].apply(lambda x: len(x.split())).tolist()
+    hidden_text = df[df['H'] == 1]['cleaned_reviews'].apply(lambda x: len(x.split())).tolist()
+    all_text = df['cleaned_reviews'].apply(lambda x: len(x.split())).tolist()
+ 
     print('review length details:\n')
-    print('所有评论平均词数: ', int(avg_len))
-    print('比较句: ', int(avg_comp_len))
-    print('非比较句: ', int(avg_non_comp_len))
-    print('平比句: ', int(avg_equal_len))
-    print('差比句: ', int(avg_comp_len_sp[0]))
-    print('不同句: ', int(avg_comp_len_sp[1]))
-    print('极比句: ', int(avg_comp_len_sp[2]))
-    print('隐性比较句: ', int(avg_hidden_len))
+    print('所有评论平均词数: ', int(np.mean(all_text)))
+    print('非隐性比较句: ', int(np.mean(not_hidden_comp_text)))
+    print('非比较句: ', int(np.mean(non_comp_text)))
+    print('平比句: ', int(np.mean(equal_text)))
+    print('差比句: ', int(np.mean(comp_text[0])))
+    print('不同句: ', int(np.mean(comp_text[1])))
+    print('极比句: ', int(np.mean(comp_text[2])))
+    print('隐性比较句: ', int(np.mean(hidden_text)))
+    print('最长最短隐性比较句: ', int(np.max(hidden_text)), int(np.min(hidden_text)))
+    print('最长最短非隐性比较句: ', int(np.max(not_hidden_comp_text)), int(np.min(not_hidden_comp_text)))
+
+    
+def check_product_cnt(x, p_l):
+    occur_list = []
+    x_seg = x['cleaned_reviews'].split()
+    entity = x['comp_entity']
+    for p in p_l:
+        if p in x_seg and p != entity:
+            occur_list.append(p)
+    occur_list = list(set(occur_list))
+    if len(occur_list) >= 1:
+        return occur_list, len(occur_list)
+    else:
+        return occur_list, 0
     

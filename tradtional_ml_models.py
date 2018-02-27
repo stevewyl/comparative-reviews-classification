@@ -3,6 +3,7 @@ from sklearn.feature_extraction.text import TfidfTransformer
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.linear_model import SGDClassifier
 from sklearn.linear_model import LogisticRegression
+from sklearn.svm import SVC
 from sklearn.pipeline import Pipeline
 from sklearn.model_selection import train_test_split
 from sklearn.model_selection import cross_val_score
@@ -23,6 +24,8 @@ def load_data(data_file):
     not_hidden = df[(df['Yes/No'] == 1) & (df['H'] == 0)]['cleaned_reviews']
     return comp, non, hidden, not_hidden
 
+
+
 def get_x_y(dataset):
    x, y = [], []
    for i in range(len(dataset)):
@@ -34,7 +37,7 @@ def get_x_y(dataset):
 def tf_idf_model(classifier):
     if classifier == 'svm':
         model = Pipeline([('vect', CountVectorizer(ngram_range=(1,3))),
-                         #('tfidf', TfidfTransformer()),
+                         ('tfidf', TfidfTransformer()),
                          ('clf', SGDClassifier(loss='hinge', penalty='l2', alpha = 0.00001, random_state=2017)),
                         ])
     elif classifier == 'nb':
@@ -45,8 +48,13 @@ def tf_idf_model(classifier):
 
     elif classifier == 'lr':
         model = Pipeline([('vect', CountVectorizer(ngram_range=(1,1))),
-                          ('tfidf', TfidfTransformer()),
+                          #('tfidf', TfidfTransformer()),
                           ('clf', LogisticRegression(penalty='l1')),
+                        ])
+    elif classifier == 'svc':
+        model = Pipeline([('vect', CountVectorizer(ngram_range=(1,3))),
+                          ('tfidf', TfidfTransformer()),
+                          ('clf', SVC(C=1.0, kernel='rbf')),
                         ])
     return model
 
@@ -86,8 +94,8 @@ def cv_train(x, y, model, n_folds = 10):
         total_score.append(eval_res['total']['f1'])
     return comp_score, non_score, total_score
 
-comp, non, hidden, not_hidden = load_data('./data/jd_comp_final_v3.xlsx')
-DATASET = [not_hidden, non]
+comp, non, hidden, not_hidden = load_data('./data/jd_comp_final_v5.xlsx')
+DATASET = [comp, non]
 FIND_BEST = False
 
 x, y= get_x_y(DATASET)
@@ -95,6 +103,7 @@ x, y= get_x_y(DATASET)
 model_svm = tf_idf_model('svm')
 model_nb = tf_idf_model('nb')
 model_lr = tf_idf_model('lr')
+model_svc = tf_idf_model('svc')
 
 parameters = {'vect__ngram_range': [(1, 1), (1, 2), (1, 3)],
               'tfidf__use_idf': (True, False),
@@ -117,10 +126,10 @@ if FIND_BEST:
     for param_name in sorted(parameters_1.keys()):
         print("%s: %r" % (param_name, lr_clf.best_params_[param_name]))
 
-res_svm = cv_train(x, y, model_svm) 
+result = cv_train(x, y, model_lr)
 # res_nb = cv_train(x, y, model_nb) # fail
 # res_lr = cv_train(x, y, model_lr)
 
 #pprint(res_lr)
-pprint(res_svm)
-print(np.mean([row[2] for row in res_svm[0]]))
+pprint(result)
+print(np.mean([row[2] for row in result[0]]))

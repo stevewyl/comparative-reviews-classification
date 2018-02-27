@@ -31,7 +31,7 @@ save_txt_data('./data/segmented_text.txt', segmented_text, 'text')
 print('Sentences have been segmented!')
 '''
 # 修正分词错误
-segmented_text = read_line_data('./data/baidu_segment_text.txt')
+segmented_text = read_line_data('./data/bigger_corpus.txt')
 segmented_text = fix_segment(segmented_text)
 print('fix complete...')   
 
@@ -80,9 +80,9 @@ def load_embeddings(fname):
     f.close()
     return embeddings_index
 
-TEXT_FORMAT = 'char'
-n_dim = 512
-min_cnt = 1
+TEXT_FORMAT = 'word'
+n_dim = 256
+min_cnt = 5
 
 if TEXT_FORMAT == 'word':
     segment_text = [sent.split() for sent in segmented_text]
@@ -95,6 +95,8 @@ elif TEXT_FORMAT == 'char':
 print('Start Trainning Word2Vec ' + TEXT_FORMAT+ ' model')
 date = datetime.now().date().strftime('%Y%m%d')
 filename = './data/embeddings/' + TEXT_FORMAT + '_vectors_%sd_'%(n_dim) + date + '_%s.txt'%(min_cnt)
+model_name =  './data/embeddings/' + TEXT_FORMAT + '_model_%sd_'%(n_dim) + date + '_%s'%(min_cnt)
 model = word2vec(segment_text, filename, n_dim, window_size, min_cnt)
-#w2v_embeddings = load_embeddings('./data/vectors_256d.txt')
+model.save(model_name)
+w2v_embeddings = load_embeddings('./data/embeddings/word_vectors_256d_20171225_5.txt')
 #visual_embeddings(word_list, w2v_embeddings)

@@ -20,35 +20,41 @@ import re
 from collections import Counter
 from pprint import pprint
 import numpy.random as nprnd
+import math
 
 from sklearn.model_selection import train_test_split
 from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import classification_report
 from sklearn.metrics import confusion_matrix, accuracy_score
-from sklearn.preprocessing import Normalizer
+from sklearn.preprocessing import Normalizer, LabelEncoder
 
 from keras.preprocessing.sequence import pad_sequences
 from keras.preprocessing.text import Tokenizer
 from keras.utils.np_utils import to_categorical
 from keras.utils import plot_model
 from keras.callbacks import TensorBoard, ModelCheckpoint, EarlyStopping
+from keras.callbacks import LearningRateScheduler
 from keras.models import model_from_yaml
 
-from model_library import TextCNNBN, TextInception, convRNN, HAN, SelfAtt
-from model_library import AttLayer
-from model_library import get_attention
+from model_library import TextCNNBN, TextInception, convRNN, HAN, HMAN, SelfAtt
+from model_library import AttLayer, fasttext, one_hot_mdoel, bi_rnn, TextCNN
+from tools import get_attention
 from utils import plot_loss_accuray, save_txt_data, split_sent
-from utils import shuffle_split_datasets, plot_roc_curve, customed_heatmap
+from utils import customed_heatmap, read_line_data
 
-def read_x_data(filename):
-    df = pd.read_excel(filename)
+def read_x_data(df):
+    le = LabelEncoder().fit(df['sent_bin'])
+    df['sentiment'] = le.transform(df['sent_bin'])
     hidden_index = df.index[df['H'] == 1].tolist()
-    comp = df[df['Yes/No'] == 1]['cleaned_reviews']
-    non = df[df['Yes/No'] == 0]['cleaned_reviews']
-    hidden = df[df['H'] == 1]['cleaned_reviews']
-    not_hidden = df[(df['Yes/No'] == 1) & (df['H'] == 0)]['cleaned_reviews']
+    comp = df[df['Yes/No'] == 1][['cleaned_reviews', 'sentiment']]
+    non = df[df['Yes/No'] == 0][['cleaned_reviews', 'sentiment']]
+    equal = df[(df['平比'] == 1) & (df['H'] == 0)][['cleaned_reviews', 'sentiment']]
+    notequal = df[(df['Yes/No'] == 1) & (df['H'] == 0) & (df['平比'] != 1)][['cleaned_reviews', 'sentiment']]
+    most_comp =  df[(df['差比'] == 3) & (df['H'] == 0)][['cleaned_reviews', 'sentiment']]
+    hidden = df[df['H'] == 1][['cleaned_reviews', 'sentiment']]
+    not_hidden = df[(df['Yes/No'] == 1) & (df['H'] == 0)][['cleaned_reviews', 'sentiment']]
     print('text data load succeed')
-    return comp, non, hidden, not_hidden, hidden_index
+    return comp, non, hidden, not_hidden, equal, notequal, most_comp, hidden_index
 
 # 载入词向量矩阵
 def load_embeddings(fname, vocab, n_dim):
@@ -69,15 +75,16 @@ def load_embeddings(fname, vocab, n_dim):
 
 # get the text and target
 def get_x_y(dataset, mode):
-    x, y = [], []
+    x, y, s= [], [], []
     for i in range(len(dataset)):
-        x += dataset[i].tolist()
+        x += dataset[i]['cleaned_reviews'].tolist()
+        s += dataset[i]['sentiment'].tolist()
         y += [i for _ in range(dataset[i].shape[0])]
     if mode == 'char':
         x = [re.sub(' ','',sent) for sent in x]
         x = [[char for char in sent] for sent in x]
         x = [' '.join(sent) for sent in x]
-    return x, y
+    return x, y, s
 
 # 对文本进行序列化处理
 def get_sequences(tokenizer, train_data, mode, max_length):
@@ -112,10 +119,16 @@ def eval_score(confusion_mat, num_labels):
     res['total']['cnt'] = cnt_total
     return res
 
+def remove_seq(text):
+    return [re.sub('UNK', '', ' '.join(sent)) for sent in text]
+
+
 # 误差分析（句子长度，术语出现次数，比较特征词出现次数，是否是隐性比较句等）
 def error_analysis(x_test, y_true, y_pred, prob, date, text_mode, train_mode):
     close_samples_idx = [i for i,sample in enumerate(prob) if np.abs(sample[0]-sample[1])<0.25]
+    totally_wrong_idx = [i for i,s in enumerate(prob) if np.abs(s[0]-s[1])>0.9 and y_true[i] < y_pred[i]]
     close_samples = [x_test[i] for i in close_samples_idx]
+    wrong_samples = [x_test[i] for i in totally_wrong_idx]
     diff_recall_idx = [i for i in range(len(y_true)) if y_true[i] != y_pred[i] and y_pred[i] != 0]
     diff_precision_idx = [i for i in range(len(y_true)) if y_true[i] != y_pred[i] and y_true[i] != 0]
     mutual_idx_1 = list(set(diff_recall_idx).intersection(set(close_samples_idx)))
@@ -124,6 +137,13 @@ def error_analysis(x_test, y_true, y_pred, prob, date, text_mode, train_mode):
     diff_recall = [x_test[i] for i in diff_recall_idx]
     diff_precision = [x_test[i] for i in diff_precision_idx]
     close_wrong_samples = [x_test[i] for i in mutual_idx]
+    
+    if text_mode == 'seq':
+        diff_precision = remove_seq(diff_precision)
+        diff_recall = remove_seq(diff_recall)
+        close_samples = remove_seq(close_samples)
+        close_wrong_samples = remove_seq(close_wrong_samples)
+        wrong_samples = remove_seq(wrong_samples)
 
     if train_mode == 'single':
         date_model = date + '_' + MODEL_NAME
@@ -135,21 +155,21 @@ def error_analysis(x_test, y_true, y_pred, prob, date, text_mode, train_mode):
                       close_samples, text_mode)
         save_txt_data('./result/mutual_wrong_samples_' + date_model + '.txt',
                       close_wrong_samples, text_mode)
-        return diff_recall_idx
+        save_txt_data('./result/totally_wrong_samples_' + date_model + '.txt',
+                      wrong_samples, text_mode)
+        
+    return diff_precision, diff_recall, wrong_samples
 
-    elif train_mode == 'cross_fold':
-        if text_mode == 'seq':
-            diff_precision = [re.sub('UNK', '', ' '.join(sent)) for sent in diff_precision]
-            diff_recall = [re.sub('UNK', '', ' '.join(sent)) for sent in diff_recall]
-            close_wrong_samples = [re.sub('UNK', '', ' '.join(sent)) for sent in close_wrong_samples]
-        return diff_precision, diff_recall, close_wrong_samples
-
-    '''
-    wrong_recall_len = [len(sent.split()) for sent in diff_recall]
-    wrong_precision_len = [len(sent.split()) for sent in diff_precision]
-    print('avg_len wrong from 0 to 1: ', np.mean(wrong_recall_len))
-    print('avg_len wrong from 1 to 0: ', np.mean(wrong_precision_len))
-    '''
+# 查看不同类别的文本的错误比例
+def check_hidden(df, wrong_samples):
+    wrong_samples = [re.sub(' ','',sent) for sent in wrong_samples]
+    hidden_samples = df['cleaned_reviews'].tolist()
+    hidden_samples = [re.sub(' ','',sent) for sent in hidden_samples]
+    cnt = 0
+    for s in wrong_samples:
+        if s in hidden_samples:
+            cnt += 1
+    return round(cnt / len(wrong_samples), 4)
 
 # 各个模型的结构初始化及模型超参设置
 def model_build(name, num_labels, max_words, pre_trained, plot_structure = False):
@@ -161,26 +181,50 @@ def model_build(name, num_labels, max_words, pre_trained, plot_structure = False
         loss_function = 'categorical_crossentropy'
 
     if name == 'convRNN':
-        model = convRNN(max_words, EMBED_DIMS, len(vocab), 256, 0.25, [384,256],
-                        1, 'same', 5, 128, ACTIVATION, num_labels, classifier,
+        model = convRNN(max_words, EMBED_DIMS, len(vocab), 256, 
+                        0.25, [384,256], 1, 'same', 5, 128, 
+                        ACTIVATION, num_labels, classifier,
                         loss_function, pre_trained, embedding_matrix)
     elif name == 'TextCNNBN':
-        model = TextCNNBN(max_words, EMBED_DIMS, len(vocab), [3,4,5], [256,128],
-                          4, 'same', 256, num_labels, ACTIVATION, classifier,
+        model = TextCNNBN(max_words, EMBED_DIMS, len(vocab), 
+                          [3,4,5], [256,128], 4, 'same', 256,
+                          num_labels, ACTIVATION, classifier,
                           loss_function, pre_trained, embedding_matrix)
     elif name == 'Inception':
         model = TextInception(max_words, EMBED_DIMS, len(vocab),
-                              [[1],[1,3],[3,5],[3]], [256,128], 'same', 0.5,
-                              256, num_labels, ACTIVATION, classifier, 
-                              loss_function, pre_trained, embedding_matrix)
+                              [[1],[1,3],[3,5],[3]], [256,128], 
+                              'same', 0.5, 256, num_labels, 
+                              ACTIVATION, classifier,loss_function, 
+                              pre_trained, embedding_matrix)
     elif name == 'HAN':
-        model = HAN(max_words, MAX_SENTS, EMBED_DIMS, len(vocab), [256,128],
-                    [0.4,0.25,0.15], [0.25,0.15], num_labels, 64, classifier, loss_function,
+        model = HAN(max_words, MAX_SENTS, EMBED_DIMS, len(vocab), 
+                    [256,128], [0.4,0.25,0.15], [0.25,0.15], 
+                    num_labels, 64, classifier, loss_function,
                     ACTIVATION, pre_trained, embedding_matrix)
-    elif name == 'SHAN':
-        model = SelfAtt(max_words, EMBED_DIMS, len(vocab), 256, 0.5, 0.25,
-                        num_labels, 64, classifier, loss_function, ACTIVATION,
-                        pre_trained, embedding_matrix)
+    elif name == 'HMAN':
+        model = HMAN([4,2], max_words, MAX_SENTS, EMBED_DIMS, len(vocab), 
+                     [256,128], [0.4,0.25,0.15], [0.25,0.15], 
+                     num_labels, 64, classifier, loss_function,
+                    ACTIVATION, pre_trained, embedding_matrix)
+    elif name == 'SelfAtt':
+        model = SelfAtt(10, max_words, EMBED_DIMS, len(vocab), 256, 
+                        0.25, 0.15, num_labels, 128, classifier, 
+                        loss_function, ACTIVATION, pre_trained,
+                        embedding_matrix)
+    elif name == 'fasttext':
+        model = fasttext(len(vocab), max_words, EMBED_DIMS, embedding_matrix,
+                         pre_trained, num_labels, classifier, loss_function)
+    elif name == 'one-hot':
+        model = one_hot_mdoel(len(vocab), 0.5, 512, num_labels, ACTIVATION,
+                              classifier, loss_function)
+    elif name == 'bi_rnn':
+        model = bi_rnn(len(vocab), EMBED_DIMS, max_words, embedding_matrix,
+                       pre_trained, 256, [0.25,0.15], num_labels, classifier,
+                       loss_function)
+    elif name == 'TextCNN':
+        model = TextCNN(len(vocab), EMBED_DIMS, max_words, embedding_matrix,
+                        pre_trained, 256, [3,4,5], 1, [5,5,5], 0.5, num_labels,
+                        classifier, loss_function, 256)
     else:
         print('This model does not exist in model_library.py')
 
@@ -201,6 +245,14 @@ def load_model(model_file, weights_file):
     loaded_model.load_weights(weights_file)
     return loaded_model
 
+# 学习率衰减策略
+def step_decay(epoch):
+    initial_lrate = 0.001
+    drop = 0.5
+    epochs_drop = 2.0
+    lrate = initial_lrate * math.pow(drop, math.floor((1+epoch) / epochs_drop))
+    return lrate
+
 # 10折交叉验证
 def cv_train(x, y, batch_size, n_epochs, num_labels, max_words, 
              text_mode, pre_trained, model_name, tokenizer, n_folds = 10):             
@@ -210,6 +262,8 @@ def cv_train(x, y, batch_size, n_epochs, num_labels, max_words,
     wrong_samples = {'pre':[], 'rec':[], 'mutal':[]}
     i = 1
     early_stopping = EarlyStopping(monitor = 'val_loss', patience = 2)
+    lrate = LearningRateScheduler(step_decay)
+
     for train_index, test_index in kf.split(x, y):
         print('Fold ' + str(i) + ':')
         X_train = [x[index] for index in train_index]
@@ -218,7 +272,7 @@ def cv_train(x, y, batch_size, n_epochs, num_labels, max_words,
         y_test = to_categorical([y[index] for index in test_index])
         x_train = np.array(get_sequences(tokenizer, X_train, text_mode, max_words))
         x_test = np.array(get_sequences(tokenizer, X_test, text_mode, max_words))
-        if model_name == 'HAN':
+        if model_name in ['HAN','HMAN']:
             _, model = model_build(model_name, num_labels, max_words, pre_trained)
         else:
             model = model_build(model_name, num_labels, max_words, pre_trained)
@@ -226,7 +280,7 @@ def cv_train(x, y, batch_size, n_epochs, num_labels, max_words,
                   batch_size = batch_size,
                   epochs = n_epochs,
                   validation_data = (x_test, y_test),
-                  callbacks = [early_stopping])
+                  callbacks = [early_stopping, lrate])
         predicted = model.predict(x_test)
         y_true = np.argmax(y_test, axis = 1)
         y_pred = np.argmax(predicted, axis = 1)
@@ -259,15 +313,18 @@ def single_training(model, x, y, batch_size, n_epochs, test_size, num_labels,
     checkpoint = ModelCheckpoint(weights_name, monitor = 'val_acc', verbose = 1,
                                  save_best_only = True, mode = 'max')
     early_stopping = EarlyStopping(monitor = 'val_loss', patience = 2)
+    lrate = LearningRateScheduler(step_decay)
+
     history = model.fit(x[0], y[0],
                         batch_size = batch_size,
                         epochs = n_epochs,
                         validation_data = (x[1], y[1]),
-                        callbacks = [checkpoint, early_stopping])
-    model_yaml = model.to_yaml()
-    with open(m_name, "w") as yaml_file:
-        yaml_file.write(model_yaml)
-    model.save_weights(weights_name)
+                        callbacks = [checkpoint, early_stopping, lrate])
+    if SAVE_MODEL:
+        model_yaml = model.to_yaml()
+        with open(m_name, "w") as yaml_file:
+            yaml_file.write(model_yaml)
+        #model.save_weights(weights_name)
     predicted = model.predict(x[1])
     y_true = np.argmax(y[1], axis = 1)
     y_pred = np.argmax(predicted, axis = 1)
@@ -277,9 +334,10 @@ def single_training(model, x, y, batch_size, n_epochs, test_size, num_labels,
     print("\nclassification report\n")
     print(classification_report(y_true, y_pred))
     plot_loss_accuray(history)
-    return y_true, y_pred, predicted
+    
+    return y_true, y_pred, predicted, history, model
 
-# 模型预测新样本
+# 载入训练好的模型预测新样本
 def model_predict(model_file, weigths_file, test_data):
     best_model = load_model(model_file, weigths_file)
     best_model.predict(test_data)
@@ -287,74 +345,79 @@ def model_predict(model_file, weigths_file, test_data):
     return best_model
     
 # 可视化attention权重
-def visualize_attention(x_test, y_true, sent_model, doc_model, date, word2idx, label):
+def visualize_attention(x_test, y_true, sent_model, doc_model, date, word2idx, label, rand):
     print('Label:', str(label))
-    x_samples = np.array([x_test[k] for k,v in enumerate(y_true) if v == label])
-    #x_length = np.array([reviews_length[k] for k,v in enumerate(y_true) if v == label])
-    #x_1_samples = np.array([x_test[k] for k,v in enumerate(y_true) if v == 1])
-    random_index = nprnd.randint(x_samples.shape[0], size = SHOW_SAMPLES_CNT)
-    select_samples = x_samples[random_index]
-    #select_samples_len = x_length[random_index]
-    sent_all_att, sent_att, doc_att, word_idx = get_attention(sent_model, 
-                                                              doc_model, 
-                                                              select_samples)
-    #sent_all_att = [sent_all_att[i][0:select_samples_len[i]] for i in range(SHOW_SAMPLES_CNT)]
-    text_sent = [[word2idx[idx] for sub in select_samples[i] for idx in sub] for i in range(SHOW_SAMPLES_CNT)]
-    normalizer = Normalizer()
-    all_att = normalizer.fit_transform(sent_all_att)
-    customed_heatmap(all_att, text_sent, N_LIMIT, date, label)
+    #x_samples = np.array([x_test[k] for k,v in enumerate(y_true) if v == label])
+    if rand:
+        random_index = nprnd.randint(x_samples.shape[0], size = SHOW_SAMPLES_CNT)
+        select_samples = x_samples[random_index]
+    else:
+        # select_samples = x_samples[0:SHOW_SAMPLES_CNT]
+        select_samples = x_test
+    sent_all_att, doc_all_att = get_attention(sent_model, 
+                                              doc_model, 
+                                              select_samples,
+                                              MODEL_NAME)
+    text_sent = [[word2idx[idx] for sub in select_samples[i] for idx in sub] for i in range(5)]
+    normalizer_sent = Normalizer()
+    normalizer_doc = Normalizer()
+    att_sent = normalizer_sent.fit_transform(sent_all_att)
+    att_doc = normalizer_doc.fit_transform(doc_all_att)
 
-    important_words = [[word2idx[idx] for idx in word_idx[w_idx]] 
-                        for w_idx in range(SHOW_SAMPLES_CNT)]
-    print('some important keywords:')
-    pprint(important_words)
-    return sent_all_att, sent_att, doc_att
+    customed_heatmap(att_sent, text_sent, N_LIMIT, date, label, 'sent')
+    customed_heatmap(att_doc[:,::-1].T, text_sent, N_LIMIT, date, label, 'doc')
+    #important_words = [[word2idx[idx] for idx in word_idx[w_idx]] 
+    #                    for w_idx in range(SHOW_SAMPLES_CNT)]
+    #print('some important keywords:')
+    #pprint(important_words)
+    return sent_all_att, doc_all_att
 
 def train(CV, x, y, tokenizer, date):
     if not CV:
         # 模型初始化
-        if MODEL_NAME == 'HAN':
+        if MODEL_NAME in ['HAN','HMAN']:
             sent_MODEL, doc_MODEL = model_build(MODEL_NAME, NUM_LABELS, MAX_WORDS, PRE_TRAINED)
         else:
             doc_MODEL = model_build(MODEL_NAME, NUM_LABELS, MAX_WORDS, PRE_TRAINED)
         # 切分训练集和测试集
-        if CHECK_HIDDEN:
-            X_train, X_test, Y_train, Y_test, test_idx = shuffle_split_datasets(x, y)
-            test_hidden_index = [i for i in test_idx if i in hidden_index]
-        else:
-            X_train, X_test, Y_train, Y_test = train_test_split(x, y, 
-                                                                test_size = TEST_SIZE, 
-                                                                random_state = 2017)
+        X_train, X_test, Y_train, Y_test = train_test_split(x, y, 
+                                                            test_size = TEST_SIZE) 
+                                                            #random_state = 2017)
         Y_train = to_categorical(Y_train)
         Y_test = to_categorical(Y_test)
         x_train = np.array(get_sequences(tokenizer, X_train, TEXT_FORMAT, MAX_WORDS))
         x_test = np.array(get_sequences(tokenizer, X_test, TEXT_FORMAT, MAX_WORDS))
+        if MODEL_NAME == 'one-hot':
+            x_train = tokenizer.sequences_to_matrix(x_train, mode='binary')
+            x_test = tokenizer.sequences_to_matrix(x_test, mode='binary')
         x = [x_train, x_test]
         y = [Y_train, Y_test]
         # 开始训练
-        y_true, y_pred, prob = single_training(doc_MODEL, x, y, BATCH_SIZE, N_EPOCHS,
+        y_true, y_pred, prob, history, model = single_training(doc_MODEL, x, y, BATCH_SIZE, N_EPOCHS,
                                                TEST_SIZE, NUM_LABELS, MAX_WORDS, 
                                                TEXT_FORMAT, PRE_TRAINED)
+        
         print('error_analysis...')
-        w_r_idx = error_analysis(X_test, y_true, y_pred, prob, DATE, TEXT_FORMAT, 'single')
+        res = error_analysis(X_test, y_true, y_pred, prob, DATE, TEXT_FORMAT, 'single')
         
         if CHECK_HIDDEN:
-            hidden_w_samples = [x_copy[i] for i in w_r_idx if i in test_hidden_index]
-            rate = round(len(hidden_w_samples) / len(w_r_idx), 4)
-            print('recall error causes by hidden samples: ', rate)
+            check_hidden(hidden, res[3][2])
         
         # 可视化
-        if MODEL_NAME == 'HAN' and ATTENTION_V:
+        if MODEL_NAME in ['HAN', 'HMAN'] and ATTENTION_V:
             print('attention weights visualization...')
-            sent_all_att_0, sent_att_0, doc_att_0 = visualize_attention(x_test, y_true, sent_MODEL, doc_MODEL, date, word2idx, 0)
-            sent_all_att_1, sent_att_1, doc_att_1 = visualize_attention(x_test, y_true, sent_MODEL, doc_MODEL, date, word2idx, 1)
-        
+            sent_all_att_0, doc_att_0 = visualize_attention(x_test, y_true, sent_MODEL, doc_MODEL, date, word2idx, 0, RAND)
+            #sent_all_att_1, doc_att_1 = visualize_attention(x_test, y_true, sent_MODEL, doc_MODEL, date, word2idx, 1, RAND)
+
         #print('plotting roc curve...')
         #plot_roc_curve(Y_test, prob, NUM_LABELS, 1)
         
         # best_model = model_predict('','', x_test[0:20])
         # return [w_r_idx, sent_all_att_0, sent_att_0, doc_att_0]
-        return w_r_idx
+        if MODEL_NAME in ['HAN','HMAN']:
+            return  y_true, y_pred, prob, res, history, model, sent_MODEL
+        else:
+            return  y_true, y_pred, prob, res, history, model
 
     else:
         all_res = {}
@@ -380,10 +443,12 @@ def train(CV, x, y, tokenizer, date):
                 print('waiting 180 seconds...')
                 time.sleep(180)
         return all_res
+   
 
 if __name__ == '__main__':
     # 读入数据
-    comp, non, hidden, not_hidden, hidden_index = read_x_data('./data/jd_comp_final_v3.xlsx')
+    df = pd.read_excel('./data/jd_comp_final_v5.xlsx')
+    comp, non, hidden, not_hidden, equal, notequal, most_comp, hidden_index = read_x_data(df)
 
     # 一些参数（包含训练超参）
     DATASET = [not_hidden, non]
@@ -392,30 +457,45 @@ if __name__ == '__main__':
     MODEL_NAME = 'HAN'
     CUT_MODE = 'simple'
     TEXT_FORMAT = 'text'
-    ACTIVATION = 'relu'
+    ACTIVATION = 'selu' 
     BATCH_SIZE = 64
-    N_EPOCHS = 3
+    N_EPOCHS = 6
     TEST_SIZE = 0.2
     NUM_LABELS = len(DATASET)
-    EMBED_FILE = './data/embeddings/char_vectors_256d_20171219_1.txt'
-    EMBED_TYPE = re.findall(r'(?<=/)\w+(?=_v)',EMBED_FILE)[0]
-    EMBED_DIMS = int(re.findall(r'(?<=_)\d+(?=d)',EMBED_FILE)[0])
-    PRE_TRAINED = True if EMBED_FILE else False #是否使用与训练的词向量
+    EMBED_FILE = './data/embeddings/word_vectors_256d_20171228_5.txt'
+    #EMBED_FILE = ''
+    if EMBED_FILE:
+        EMBED_TYPE = re.findall(r'(?<=/)\w+(?=_v)',EMBED_FILE)[0]
+        EMBED_DIMS = int(re.findall(r'(?<=_)\d+(?=d)',EMBED_FILE)[0])
+        PRE_TRAINED = True
+    else:
+        EMBED_TYPE = 'scratch'
+        EMBED_DIMS = 256
+        PRE_TRAINED = False
     N_FOLDS = 10
     FOLDS_EPOCHS = 1
     CV = False #是否进行交叉验证
     CHECK_HIDDEN = False #是否检查隐性比较句的错误情况
     ATTENTION_V = False #是否可视化attention权重
+    SAVE_MODEL = False #是否保存模型结构
+    PREDICT = False #是否预测新评论
+    RAND = False
+    
+    
 
     # 整理数据格式
-    x, y = get_x_y(DATASET, EMBED_TYPE)
-    x_copy = x
+    x, y, s= get_x_y(DATASET, EMBED_TYPE)
+    if PREDICT:
+        df_predict = pd.read_excel('./data/jd_20w_v2.xlsx')
+        predict_text = df_predict['segment'].tolist()
+        total_text = x + predict_text
+    total_text = x
     # reviews_length = np.array([len(sent.split()) for sent in x_copy])
 
     # 按空格切词，去除低频词
     tokenizer = Tokenizer(filters = '!"#$%&()*+,-./:;<=>?@[\\]^_`{|}~\t\n',
                           lower = True, split = " ")
-    tokenizer.fit_on_texts(x)
+    tokenizer.fit_on_texts(total_text)
     vocab = tokenizer.word_index
     vocab['UNK'] = 0
     word2idx = {v:k for k,v in vocab.items()}
@@ -426,28 +506,60 @@ if __name__ == '__main__':
     weights_name = './model/' + MODEL_NAME + '_weights_' + DATE + '.hdf5'
 
     # HAN模型需要的文本输入格式
-    if MODEL_NAME == 'HAN':
-        print('prepare inputs for HAN model...')
-        if EMBED_TYPE == 'word':
+    if MODEL_NAME in ['HAN','HMAN']:
+        print('prepare inputs for HAN series model...')
+        if EMBED_TYPE == 'word' or 'scratch':
             MAX_WORDS = 20
-            MAX_SENTS = 6
+            MAX_SENTS = 5
         elif EMBED_TYPE == 'char':
             MAX_WORDS = 30
             MAX_SENTS = 6
             N_EPOCHS = 3
         N_LIMIT = MAX_WORDS * MAX_SENTS
         x = [split_sent(sent, MAX_WORDS, MAX_SENTS, CUT_MODE) for sent in x]
+        if PREDICT:
+            p_x = [split_sent(sent, MAX_WORDS, MAX_SENTS, CUT_MODE) for sent in predict_text]
         TEXT_FORMAT = 'seq'
         new_name = MODEL_NAME + '_' + str(MAX_WORDS) + '_' + str(MAX_SENTS)
         m_name = './model/' + new_name + '_' + DATE + '.yaml'
         weights_name = './model/' + new_name + '_weights_' + DATE + '.hdf5'
-
     # 读入预训练的词向量矩阵
-    if PRE_TRAINED:
+    if PRE_TRAINED and MODEL_NAME != 'one-hot':
         print('loading word embeddings...')
         embedding_matrix = load_embeddings(EMBED_FILE, vocab, EMBED_DIMS)
+    else:
+        embedding_matrix = None
 
     # 单次训练还是交叉验证训练
     print(EMBED_TYPE + ' model ' + MODEL_NAME + ' start training...')
     #time.sleep(3600)
+    '''
+    r_lst = [[1,1],[3,3],[5,5],[8,5],[10,5]]
+    epoch_info = {}
+    for i in range(5):
+        tmp  = {}
+        R = r_lst[i]
+        print(R)
+        result = train(CV, x, y, tokenizer, DATE)
+        tmp['val_acc'] = result[4].history['val_acc']
+        tmp['val_loss'] = result[4].history['val_loss']
+        epoch_info[str(R[0])+'-'+str(R[1])] = tmp
+    '''
     result = train(CV, x, y, tokenizer, DATE)
+    show_text = read_line_data('./data/reviews_example.txt')
+    xx = [split_sent(sent, MAX_WORDS, MAX_SENTS, CUT_MODE) for sent in show_text]
+    xxx = np.array(get_sequences(tokenizer, xx, TEXT_FORMAT, MAX_WORDS))
+    aa=visualize_attention(xxx,result[0],result[-1],result[-2], DATE, word2idx,0,False)
+    if CHECK_HIDDEN:
+        print(check_hidden(comp, result[3][1]))
+        print(check_hidden(hidden, result[3][1]))
+        print(check_hidden(equal, result[3][1]))
+        print(check_hidden(notequal, result[3][1]))
+    if not CV and PREDICT:
+        print('predict labels for new reviews...')
+        model = result[4]
+        test = np.array(get_sequences(tokenizer, p_x, TEXT_FORMAT, MAX_WORDS))
+        p_res = model.predict(test)
+        df_predict['label_90'] = [1 if p[0] > 0.9 else 0 for p in p_res]
+        df_predict[df_predict['label_90'] == 1]['cleaned_text'][0:10]
+        df_predict.to_excel('./data/jd_16w_predict_res.xlsx', index = None)
