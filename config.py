@@ -4,14 +4,20 @@ import json
 class ModelConfig(object):
     """Wrapper class for model hyperparameters."""
 
-    def __init__(self, max_words, embed_size, vocab_cnt, model_name):
+    def __init__(self, max_words, embed_size, vocab_cnt, r, drop_rate,
+                 fc_units=64, rnn_units=[256,128], model_name):
         self.max_words = max_words
         self.embed_size = embed_size
         self.vocab_cnt = vocab_cnt
+        self.drop_rate = drop_rate
+        self.fc_units = fc_units
+        self.rnn_units = rnn_units
+        self.
 
         if model_name in ['HAN', 'MHAN', 'Self_Att']:
             if model_name == 'Self_Att':
-                self.
+                self.ws1 = 350
+                self.r = r
 
         if model_name == 'TextCNN':
             self.

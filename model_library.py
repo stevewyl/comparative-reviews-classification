@@ -66,14 +66,14 @@ class HAN(Classification_Model):
         # 嵌入层
         embed = embedding_layers(config, embeddings)(sent_inputs)
         # 句子编码
-        sent_enc = Bidirectional(LSTM(config.gru_units[0], dropout=config.drop_prob[0],
+        sent_enc = Bidirectional(GRU(config.gru_units[0], dropout=config.drop_prob[0],
                                       recurrent_dropout=config.re_drop[0],
                                       return_sequences=True))(embed)
         sent_att = Attention(config.att_size[0], name='AttLayer')(sent_enc)
         self.sent_model = Model(sent_inputs, sent_att)
         # 段落编码
         doc_emb = TimeDistributed(self.sent_model)(doc_inputs)
-        doc_enc = Bidirectional(LSTM(config.gru_units[1], dropout=config.drop_prob[1],
+        doc_enc = Bidirectional(GRU(config.gru_units[1], dropout=config.drop_prob[1],
                                      recurrent_dropout=config.re_drop[1],
                                      return_sequences=True))(doc_emb)
         doc_att = Attention(config.att_size[1], name='AttLayer')(doc_enc)
@@ -96,13 +96,31 @@ class HAN(Classification_Model):
 
 
 class SelfAtt(Classification_Model):
-    def __init__(self, config, embeddings=None, ntag=None):
-        
+    def __init__(self, config, model_name='self_att', embeddings=None, ntag=None):
+        self.model_name = model_name
         # 定义模型输入
         sent_inputs = Input(shape=(config.max_words,), dtype='float64')
         # 嵌入层
         embed = embedding_layers(config, embeddings)(sent_inputs)
+        # 句子编码
+        sent_enc = Bidirectional(GRU(config.rnn_units[0], dropout=config.drop_prob[0],
+                                      recurrent_dropout=config.re_drop[0],
+                                      return_sequences=True))(embed)
+        sent_att = Self_Attention(350, config.r, punish=False, name='SelfAttLayer')(sent_enc)
+        # FC
+        flat = Flatten()(sent_att)
+        fc1 = Dense(config.fc_units, activation=config.activation_func,
+                    kernel_initializer='he_normal',
+                    kernel_regularizer=regularizers.l2(0.01))(flat)
+        # 输出
+        output = Dense(ntag, activation=config.classifier)(fc1)
+        # 最终模型
+        self.model = Model(inputs=sent_inputs, outputs=output)
         self.config = config
+
+    def get_attentions(self, sequences):
+        return get_attention(self.model, None, sequences, self.model_name)
+
 
 def cnn_bn_block(conv_size, n_gram, padding_method, activation_func, last_layer):
     conv = Convolution1D(conv_size, n_gram, padding = padding_method)(last_layer)
@@ -204,31 +222,6 @@ def convRNN(max_len, embed_size, vocab_cnt, hidden_units, drop_rate,
                   optimizer = 'adam',
                   metrics = ['accuracy'])
 
-    return model
-
-
-def SelfAtt(r, max_words, embed_size, vocab_cnt, gru_units,
-            drop_prob, re_drop, num_labels, fc_units, classifier,
-            loss_function, activation_func, pre_trained, embedding_matrix,
-            punishment = False):
-    sent_inputs = Input(shape=(max_words,), dtype = 'float64')
-    embed = embedding_layers(vocab_cnt, embed_size, max_words,
-                             embedding_matrix, pre_trained)(sent_inputs)
-    sent_enc = Bidirectional(GRU(gru_units, dropout = drop_prob,
-                                 recurrent_dropout = re_drop,
-                                 return_sequences = True))(embed)
-    sent_att = Self_Attention(350, r, punishment)(sent_enc)
-    flat = Flatten()(sent_att)
-    fc = Dense(fc_units, activation = activation_func,
-               kernel_regularizer=regularizers.l2(0.01),
-               kernel_initializer = 'he_normal')(flat)
-    
-    output = Dense(num_labels, activation = classifier)(fc)
-    model = Model(inputs = sent_inputs, outputs = output)
-    opt = optimizers.Adam(clipnorm=1.)
-    model.compile(loss = loss_function,
-                  optimizer = opt,
-                  metrics = ['accuracy'])
     return model
 
 def HMAN(r, max_words, max_sents, embed_size, vocab_cnt, gru_units,
