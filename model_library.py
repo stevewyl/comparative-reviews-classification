@@ -101,7 +101,7 @@ class SelfAtt(Classification_Model):
         # 定义模型输入
         sent_inputs = Input(shape=(config.max_words,), dtype='float64')
         # 嵌入层
-
+        embed = embedding_layers(config, embeddings)(sent_inputs)
         self.config = config
 
 def cnn_bn_block(conv_size, n_gram, padding_method, activation_func, last_layer):
