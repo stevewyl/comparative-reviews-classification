@@ -96,7 +96,7 @@ class HAN(Classification_Model):
 
 
 class SelfAtt(Classification_Model):
-    def __init__(self, config, embedding=None, ntag=None):
+    def __init__(self, config, embeddings=None, ntag=None):
         
         # 定义模型输入
         sent_inputs = Input(shape=(config.max_words,), dtype='float64')
