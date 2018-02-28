@@ -3,7 +3,6 @@ text classification model zoo
 '''
 import tensorflow as tf
 import numpy as np
-from utils import split_sent
 from tools import Attention, Self_Attention
 from tools import get_attention
 
@@ -18,13 +17,14 @@ from keras import regularizers
 from keras import backend as K
 from keras.engine.topology import Layer
 from keras import optimizers
+from keras.utils import plot_model
 
 # 模型初始化
 class Classification_Model(object):
-    def __init__(self, config, embeddings, ntags):
+    def __init__(self, config, model_name, embeddings):
         self.config = config
         self.embeddings = embeddings
-        self.ntags = ntags
+        self.model_name = model_name
         self.model = None
 
     def predict(self, X, *args, **kwargs):
@@ -40,6 +40,9 @@ class Classification_Model(object):
 
     def load(self, filepath):
         self.model.load_weights(filepath=filepath)
+
+    def plot(self, filepath):
+        plot_model(self.model, to_file = filepath)
 
     def __getattr__(self, name):
         return getattr(self.model, name)
@@ -57,23 +60,23 @@ def embedding_layers(config, embeddings=None):
                           weights=[embeddings])
     return embed
 
+# 单注意力层次网络
 class HAN(Classification_Model):
-    def __init__(self, config, model_name='HAN', embeddings=None):
-        self.model_name = model_name
+    def __init__(self, config, model_name, embeddings=None):
         # 定义模型输入
         sent_inputs = Input(shape=(config.max_words,), dtype='float64')
         doc_inputs = Input(shape=(config.max_sents, config.max_words), dtype='float64')
         # 嵌入层
         embed = embedding_layers(config, embeddings)(sent_inputs)
         # 句子编码
-        sent_enc = Bidirectional(GRU(config.rnn_units[0], dropout=config.drop_prob[0],
+        sent_enc = Bidirectional(GRU(config.rnn_units[0], dropout=config.drop_rate[0],
                                       recurrent_dropout=config.re_drop[0],
                                       return_sequences=True))(embed)
         sent_att = Attention(config.att_size[0], name='AttLayer')(sent_enc)
         self.sent_model = Model(sent_inputs, sent_att)
         # 段落编码
         doc_emb = TimeDistributed(self.sent_model)(doc_inputs)
-        doc_enc = Bidirectional(GRU(config.rnn_units[1], dropout=config.drop_prob[1],
+        doc_enc = Bidirectional(GRU(config.rnn_units[1], dropout=config.drop_rate[1],
                                      recurrent_dropout=config.re_drop[1],
                                      return_sequences=True))(doc_emb)
         doc_att = Attention(config.att_size[1], name='AttLayer')(doc_enc)
@@ -94,10 +97,9 @@ class HAN(Classification_Model):
     def get_attentions(self, sequences):
         return get_attention(self.sent_model, self.model, sequences, self.model_name)
 
-
+# 多注意力网络
 class SelfAtt(Classification_Model):
-    def __init__(self, config, model_name='self_att', embeddings=None):
-        self.model_name = model_name
+    def __init__(self, config, model_name, embeddings=None):
         # 定义模型输入
         sent_inputs = Input(shape=(config.max_words,), dtype='float64')
         # 嵌入层
@@ -106,14 +108,14 @@ class SelfAtt(Classification_Model):
         sent_enc = Bidirectional(GRU(config.rnn_units[0], dropout=config.drop_rate[0],
                                       recurrent_dropout=config.re_drop[0],
                                       return_sequences=True))(embed)
-        sent_att = Self_Attention(350, config.r, punish=False, name='SelfAttLayer')(sent_enc)
+        sent_att = Self_Attention(config.ws1, config.r, punish=False, name='SelfAttLayer')(sent_enc)
         # FC
         flat = Flatten()(sent_att)
-        fc1 = Dense(config.fc_units, activation=config.activation_func,
+        fc = Dense(config.fc_units, activation=config.activation_func,
                     kernel_initializer='he_normal',
                     kernel_regularizer=regularizers.l2(0.01))(flat)
         # 输出
-        output = Dense(config.ntag, activation=config.classifier)(fc1)
+        output = Dense(config.ntag, activation=config.classifier)(fc)
         # 最终模型
         self.model = Model(inputs=sent_inputs, outputs=output)
         self.config = config
@@ -121,148 +123,178 @@ class SelfAtt(Classification_Model):
     def get_attentions(self, sequences):
         return get_attention(self.model, None, sequences, self.model_name)
 
+# 多注意力层次网络
 class MHAN(Classification_Model):
-    def __init__(self, config, model_name='MHAN', embeddings=None):
-        self.model_name = model_name
+    def __init__(self, config, model_name, embeddings=None):
         # 定义模型输入
-        
-
-
-def cnn_bn_block(conv_size, n_gram, padding_method, activation_func, last_layer):
-    conv = Convolution1D(conv_size, n_gram, padding = padding_method)(last_layer)
-    bn = BatchNormalization()(conv)
-    relu = Activation(activation_func)(bn)
-    return relu
-
-def TextCNNBN(max_len, embed_size, vocab_cnt, ngram_filters, conv_size, pool_size,
-              padding_method, fc_units, num_labels, activation_func, classifier,
-              loss_function, pre_trained, embedding_matrix):
-    main_input = Input(shape=(max_len,), dtype='float64')
-    embed = embedding_layers(vocab_cnt, embed_size, max_len,
-                             embedding_matrix, pre_trained)(main_input)
-    cnn_list = []
-    for n_gram in ngram_filters:
-        conv_net_1 = cnn_bn_block(conv_size[0], n_gram, padding_method,
-                                activation_func, embed)
-        conv_net_2 = cnn_bn_block(conv_size[1], n_gram, padding_method,
-                                activation_func, conv_net_1)
-        max_pool = MaxPool1D(pool_size)(conv_net_2)
-        cnn_list.append(max_pool)
-    cnn = concatenate(cnn_list, axis=-1)
-    flat = Flatten()(cnn)
-    fc_1 = Dense(fc_units, kernel_initializer = 'he_normal')(flat)
-    bn = BatchNormalization()(fc_1)
-    relu = Activation(activation_func)(bn)
-    main_output = Dense(num_labels, activation = classifier)(relu)
-    model = Model(inputs = main_input, outputs = main_output)
-    model.compile(loss = loss_function,
-                  optimizer = 'adam',
-                  metrics = ['accuracy'])
-
-    return model
-
-
-def TextInception(max_len, embed_size, vocab_cnt, ngram_filters, conv_size,
-                  padding_method, drop_prob, fc_units, num_labels, activation_func,
-                  classifier, loss_function, pre_trained, embedding_matrix):
-    main_input = Input(shape=(max_len,), dtype='float64')
-    embed = embedding_layers(vocab_cnt, embed_size, max_len,
-                             embedding_matrix, pre_trained)(main_input)
-    cnn_list = []
-    for ngram in ngram_filters:
-        if len(ngram) == 1:
-            conv = Convolution1D(conv_size[1], ngram[0],
-                                 padding=padding_method)(embed)
-            cnn_list.append(conv)
-        else:
-            conv1 = Convolution1D(conv_size[0], ngram[0],
-                                  padding = padding_method)(embed)
-            bn = BatchNormalization()(conv1)
-            relu = Activation(activation_func)(bn)
-            conv2 = Convolution1D(conv_size[1], ngram[1],
-                                  padding=padding_method)(relu)
-            cnn_list.append(conv2)
-
-    inception = concatenate(cnn_list, axis=-1)
-
-    flat = Flatten()(inception)
-    fc = Dense(fc_units, kernel_initializer = 'he_normal')(flat)
-    drop = Dropout(drop_prob)(fc)
-    bn = BatchNormalization()(drop)
-    relu = Activation(activation_func)(bn)
-    main_output = Dense(num_labels, activation = classifier)(relu)
-    model = Model(inputs = main_input, outputs = main_output)
-    model.compile(loss = loss_function,
-                  optimizer = 'adam',
-                  metrics = ['accuracy'])
-
-    return model
-
-# 有bug
-def convRNN(max_len, embed_size, vocab_cnt, hidden_units, drop_rate,
-            conv_size, filter_size, padding_method, pool_size, fc_units,
-            activation_fun, num_labels, classifier, loss_function,
-            pre_trained, embedding_matrix):
-    main_input = Input(shape=(max_len,), dtype='float64')
-    embed = embedding_layers(vocab_cnt, embed_size, max_len,
-                             embedding_matrix, pre_trained)(main_input)
-    forward = GRU(hidden_units, return_sequences = True,
-                  recurrent_dropout = drop_rate)(embed)
-    backward = GRU(hidden_units, return_sequences = True, go_backwards = True,
-                   recurrent_dropout = drop_rate)(embed)
-    _, last_state_for = Lambda(lambda x: tf.split(x, [max_len-1, 1], 1))(forward)
-    _, last_state_back = Lambda(lambda x: tf.split(x, [max_len-1, 1], 1))(backward)
-    bi_rnn_output = concatenate([forward, backward], axis = -1)
-    cnn_1 = Convolution1D(conv_size[0], filter_size,
-                          padding = padding_method)(bi_rnn_output)
-    bn = BatchNormalization()(cnn_1)
-    cnn_2 = Convolution1D(conv_size[1], filter_size, padding = padding_method)(bn)
-    max_pool = MaxPool1D(pool_size = pool_size)(cnn_2)
-    final = concatenate([last_state_for, max_pool, last_state_back], axis = 1)
-    flat = Flatten()(final)
-    relu = Dense(fc_units, activation = activation_fun,
-                 kernel_initializer = 'he_normal')(flat)
-    main_output = Dense(num_labels, activation = classifier)(relu)
-    model = Model(inputs = main_input, outputs = main_output)
-    model.compile(loss = loss_function,
-                  optimizer = 'adam',
-                  metrics = ['accuracy'])
-
-    return model
-
-def HMAN(r, max_words, max_sents, embed_size, vocab_cnt, gru_units,
-         drop_prob, re_drop, num_labels, fc_units, classifier,
-         loss_function, activation_func, pre_trained, embedding_matrix):
-    sent_inputs = Input(shape=(max_words,), dtype = 'float64')
-    embed = embedding_layers(vocab_cnt, embed_size, max_words,
-                             embedding_matrix, pre_trained)(sent_inputs)
-    sent_enc = Bidirectional(GRU(gru_units[0], dropout = drop_prob[0],
-                                 recurrent_dropout = re_drop[0],
-                                 return_sequences = True))(embed)
-    sent_att = Self_Attention(150, r[0], False)(sent_enc)
-    sent_flat = Flatten()(sent_att)
-    sent_model = Model(sent_inputs, sent_flat)
+        sent_inputs = Input(shape=(config.max_words,), dtype='float64')
+        doc_inputs = Input(shape=(config.max_sents, config.max_words), dtype='float64')
+        # 嵌入层
+        embed = embedding_layers(config, embeddings)(sent_inputs)
+        # 句子编码
+        sent_enc = Bidirectional(GRU(config.rnn_units[0], dropout=config.drop_prob[0],
+                                      recurrent_dropout=config.re_drop[0],
+                                      return_sequences=True))(embed)
+        sent_att = Self_Attention(config.ws1[0], config.r[0], False, name='SelfAttLayer')(sent_enc)
+        sent_flat = Flatten()(sent_att)
+        sent_model = Model(sent_inputs, sent_flat)
+        # 段落编码
+        doc_emb = TimeDistributed(sent_model)(doc_inputs)
+        doc_enc = Bidirectional(GRU(config.rnn_units[1], dropout=config.drop_prob[1],
+                                    recurrent_dropout=config.re_drop[1],
+                                    return_sequences=True))(doc_emb)
+        doc_att = Self_Attention(config.ws1[1], config.r[1], False, name='SelfAttLayer')(doc_enc)
+        # FC
+        doc_flat = Flatten()(doc_att)
+        fc = Dense(config.fc_units[0], activation=config.activation_func,
+                   kernel_initializer = 'he_normal',
+                   kernel_regularizer=regularizers.l2(0.01))(doc_flat)
+        # 输出
+        output = Dense(config.ntag, activation=config.classifier)(fc)
+        # 最终模型
+        self.model = Model(inputs=doc_inputs, outputs=output)
+        self.config = config
     
-    doc_inputs = Input(shape = (max_sents, max_words), dtype = 'float64')
-    doc_emb = TimeDistributed(sent_model)(doc_inputs)
-    doc_enc = Bidirectional(LSTM(gru_units[1], dropout = drop_prob[1],
-                            recurrent_dropout = re_drop[1],
-                            return_sequences = True))(doc_emb)
-    doc_att = Self_Attention(50, r[1], False)(doc_enc)
-    doc_flat = Flatten()(doc_att)
-    fc = Dense(fc_units, activation = activation_func,
-               kernel_initializer = 'he_normal',
-               kernel_regularizer=regularizers.l2(0.01))(doc_flat)
-    output = Dense(num_labels, activation = classifier)(fc)
-    model = Model(inputs = doc_inputs, outputs = output)
-    
-    opt = optimizers.Nadam(clipnorm=1.)
-    model.compile(loss = loss_function,
-                  optimizer = opt,
-                  metrics = ['accuracy'])
-    return sent_model, model
+    def get_attentions(self, sequences):
+        return get_attention(self.sent_model, self.model, sequences, self.model_name)
 
 
+# 双向RNN模型
+class Bi_RNN(Classification_Model):
+    def __init__(self, config, model_name, embeddings=None):
+        # 定义模型输入
+        sent_inputs = Input(shape=(config.max_words,), dtype='float64')
+        # 嵌入层
+        embed = embedding_layers(config, embeddings)(sent_inputs)   
+        # 句子编码
+        sent_enc = Bidirectional(GRU(config.rnn_units[0], 
+                                     dropout=config.drop_prob[0],
+                                     recurrent_dropout=config.re_drop[0],
+                                     return_sequences=True))(embed)
+        # 输出
+        output = Dense(config.ntag, activation=config.classifier)(sent_enc)
+        # 最终模型
+        self.model = Model(inputs=sent_inputs, outputs=output)
+        self.config = config
+
+# 多通道CNN模型
+class TextCNN(Classification_Model):
+    def __init__(self, config, model_name, embeddings=None):
+        # 定义模型输入
+        sent_inputs = Input(shape=(config.max_words,), dtype='float64')
+        # 嵌入层
+        embed = embedding_layers(config, embeddings)(sent_inputs)
+        # 句子编码
+        cnn_combine = []
+        for f,p in zip(config.filter_size, config.pool_size):
+            cnn = Convolution1D(config.conv_size, f, padding='same')(embed)
+            pool = MaxPool1D(pool_size=p)(cnn)
+            cnn_combine.append(pool)
+        cnn_all = concatenate(cnn_combine, axis=-1)
+        # FC
+        flat = Flatten()(cnn_all)
+        drop = Dropout(config.drop_rate[0])(flat)
+        fc = Dense(config.fc_units, activation=config.activation_func, 
+                   kernel_initializer = 'he_normal',
+                   kernel_regularizer=regularizers.l2(0.01))(drop)
+        # 输出
+        output = Dense(config.ntag, activation=config.classifier)(fc)
+        # 最终模型
+        self.model = Model(inputs=sent_inputs, outputs=output)
+        self.config = config
+
+class TextCNNBN(Classification_Model):
+    def __init__(self, config, model_name, embeddings=None):
+        # 定义模型输入
+        sent_inputs = Input(shape=(config.max_words,), dtype='float64')
+        # 嵌入层
+        embed = embedding_layers(config, embeddings)(sent_inputs)
+        # 句子编码
+        cnn_combine = []
+        for f,p in zip(config.filter_size, config.pool_size):
+            conv_net_1 = Convolution1D(config.conv_size[0], f, padding='same')(embed)
+            bn_1 = BatchNormalization()(conv_net_1)
+            relu_1 = Activation(config.activation_func)(bn_1)
+            conv_net_2 = Convolution1D(config.conv_size[1], f, padding='same')(relu_1)
+            bn_2 = BatchNormalization()(conv_net_2)
+            relu_2 = Activation(config.activation_func)(bn_2)
+            pool = MaxPool1D(pool_size=p)(relu_2)
+            cnn_combine.append(pool)
+        cnn_all = concatenate(cnn_combine, axis=-1)
+        # FC
+        flat = Flatten()(cnn_all)
+        fc = Dense(config.fc_units, kernel_initializer='he_normal')(flat)
+        bn = BatchNormalization()(fc)
+        relu = Activation(config.activation_func)(bn)
+        # 输出
+        output = Dense(config.ntag, activation=config.classifier)(relu)
+        # 最终模型
+        self.model = Model(inputs=sent_inputs, outputs=output)
+        self.config = config
+
+
+class TextInception(Classification_Model):
+    def __init__(self, config, model_name, embeddings=None):
+        # 定义模型输入
+        sent_inputs = Input(shape=(config.max_words,), dtype='float64')
+        # 嵌入层
+        embed = embedding_layers(config, embeddings)(sent_inputs)
+        # 句子编码
+        cnn_combine = []
+        for f in config.filter_size:
+            if len(f) == 1:
+                conv = Convolution1D(config.conv_size[1], f[0],
+                                     padding='same')(embed)
+                cnn_combine.append(conv)
+            else:
+                conv_net_1 = Convolution1D(config.conv_size[0], f[0],
+                                           padding='same')(embed)
+                bn = BatchNormalization()(conv_net_1)
+                relu = Activation(config.activation_func)(bn)
+                conv_net_2 = Convolution1D(config.conv_size[1], f[1],
+                                           padding='same')(relu)
+                cnn_combine.append(conv_net_2)
+        inception = concatenate(cnn_combine, axis=-1)
+        # FC
+        flat = Flatten()(inception)
+        bn = BatchNormalization()(flat)
+        relu = Activation(config.activation_func)(bn)
+        # 输出
+        output = Dense(config.ntag, activation=config.classifier)(relu)
+        # 最终模型
+        self.model = Model(inputs=sent_inputs, outputs=output)
+        self.config = config
+
+class convRNN(Classification_Model):
+    def __init__(self, config, model_name, embeddings=None):
+        # 定义模型输入
+        sent_inputs = Input(shape=(config.max_words,), dtype='float64')
+        # 嵌入层
+        embed = embedding_layers(config, embeddings)(sent_inputs)
+        # 句子编码（RNN)
+        forward = GRU(config.rnn_units[0], return_sequences=True,
+                      recurrent_dropout=config.drop_rate[0])(embed)
+        backward = GRU(config.rnn_units[0], return_sequences=True, go_backwards=True, 
+                       recurrent_dropout=config.drop_rate[0])(embed)
+        _, last_state_for = Lambda(lambda x: tf.split(x, [config.max_words-1, 1], 1))(forward)
+        _, last_state_back = Lambda(lambda x: tf.split(x, [config.max_words-1, 1], 1))(backward)
+        bi_rnn_output = concatenate([forward, backward], axis = -1)
+        # 句子编码（CNN)
+        conv_net_1 = Convolution1D(config.conv_size[0], config.filter_size, 
+                                   padding='same')(bi_rnn_output)
+        bn = BatchNormalization()(conv_net_1)
+        conv_net_2 = Convolution1D(config.conv_size[1], config.filter_size, 
+                                   padding='same')(bn)
+        pool = MaxPool1D(config.pool_size[0])(conv_net_2)
+        final = concatenate([last_state_for, pool, last_state_back], axis = 1)
+        # FC
+        flat = Flatten()(final)
+        fc = Dense(config.fc_units, activation=config.activation_func)(flat)
+        # 输出
+        output = Dense(config.ntag, activation=config.classifier)(fc)   
+        # 最终模型
+        self.model = Model(inputs=sent_inputs, outputs=output)
+        self.config = config
 
 
 def char_word_HAN(max_words, max_sents, embed_size, vocab_cnt, gru_units,
@@ -394,50 +426,6 @@ def fasttext(vocab_cnt, max_words, embed_size, embedding_matrix,
     opt = optimizers.Adam(clipnorm=1.)
     model.compile(loss=loss_func,
                   optimizer= opt ,
-                  metrics=['accuracy'])
-    return model
-
-def bi_rnn(vocab_cnt, embed_size, max_words, embedding_matrix, pre_trained, 
-           gru_units, drop_rate, num_labels, classifier, loss_func):
-    model = Sequential()
-    model.add(embedding_layers(vocab_cnt, embed_size, max_words,
-                               embedding_matrix, pre_trained))
-    model.add(GRU(gru_units, dropout=drop_rate[0], 
-                  recurrent_dropout=drop_rate[1], return_sequences=True))
-    model.add(GRU(gru_units, dropout=drop_rate[0], recurrent_dropout=drop_rate[1]))
-    model.add(Dense(num_labels, activation=classifier))
-    opt = optimizers.Adam(clipnorm=1.)
-    model.compile(loss=loss_func,
-                  optimizer= opt ,
-                  metrics=['accuracy'])
-    return model
-
-def TextCNN(vocab_cnt, embed_size, max_words, embedding_matrix, pre_trained,
-            cnn_size, filter_size, stride, pool_size, drop_rate, num_labels,
-            classifier, loss_func, fc_units):
-    main_input = Input(shape=(max_words,), dtype='float64')
-    embed = embedding_layers(vocab_cnt, embed_size, max_words,
-                                embedding_matrix, pre_trained)(main_input)
-    cnn1 = Convolution1D(cnn_size, filter_size[0], padding='same', 
-                         strides = stride, activation='relu')(embed)
-    cnn1 = MaxPool1D(pool_size=pool_size[0])(cnn1)
-    cnn2 = Convolution1D(cnn_size, filter_size[1], padding='same', 
-                         strides = stride, activation='relu')(embed)
-    cnn2 = MaxPool1D(pool_size=pool_size[1])(cnn2)
-    cnn3 = Convolution1D(cnn_size, filter_size[2], padding='same', 
-                         strides = stride, activation='relu')(embed)
-    cnn3 = MaxPool1D(pool_size=pool_size[2])(cnn3)
-    cnn = concatenate([cnn1,cnn2,cnn3], axis=-1)
-    flat = Flatten()(cnn)
-    drop = Dropout(drop_rate)(flat)
-    fc = Dense(fc_units, activation='relu', kernel_initializer = 'he_normal',
-               kernel_regularizer=regularizers.l2(0.01))(drop)
-
-    main_output = Dense(num_labels, activation=classifier)(fc)
-    model = Model(inputs = main_input, outputs = main_output)
-    opt = optimizers.Adam(clipnorm=1.)
-    model.compile(loss=loss_func,
-                  optimizer=opt,
                   metrics=['accuracy'])
     return model
 
