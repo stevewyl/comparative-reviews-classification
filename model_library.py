@@ -44,10 +44,6 @@ class Classification_Model(object):
     def plot(self, filepath):
         plot_model(self.model, to_file = filepath)
 
-    # bug
-    def __getattr__(self, name):
-        return getattr(self.model, name)
-
 # 嵌入层
 def embedding_layers(config, embeddings=None):
     if embeddings is None:
