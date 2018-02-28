@@ -15,8 +15,8 @@ def custom_loss(y_true, y_pred, loss_p, p_coef=0.004):
 # Attention Layers
 # Include:
 ''' 
-    1. Basic Attention from paper "Hierarchical Attention Networks for Document Classification"
-    2. Self Attention from paper "A Structured Self-Attentive Sentence Embedding"
+    1. Basic Attention from paper "Hierarchical Attention Networks for Document Classification(2016)"
+    2. Self Attention from paper "A Structured Self-Attentive Sentence Embedding(2017)"
 '''
 
 # Basic Attention
@@ -34,7 +34,7 @@ class Attention(Layer):
                                  initializer="glorot_normal",
                                  trainable=True)
         self.b = self.add_weight(name="b_{:s}".format(self.name),
-                                 shape=(self.attention_size, 1),
+                                 shape=(input_shape[1], 1),
                                  initializer="zeros",
                                  trainable=True)
         self.u = self.add_weight(name="u_{:s}".format(self.name),

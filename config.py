@@ -11,15 +11,17 @@ class ModelConfig(object):
         self.vocab_cnt = vocab_cnt #词语总数
         self.drop_rate = [0.5,0.3] #丢弃率
         self.re_drop = [0.25,0.15] #丢弃率（rnn）
-        self.fc_units = 64 #fc层输出维度
+        self.fc_units = [64] #fc层输出维度
         self.rnn_units = [256,128] #rnn层输出维度
         self.activation_func = 'relu' #激活函数
         self.classifier = 'sigmoid' #分类器
         self.loss_func = 'binary_crossentropy' # 损失函数
         self.pool_size = [5,5,5]  #池化层步长
         self.conv_size = [192, 128] #卷积层channel数
+        self.ntags = ntags
+        self.model_name = model_name
 
-        if ntags > 2:
+        if self.ntags > 2:
             self.classifier = 'softmax'
             self.loss_func = 'categorical_crossentropy'
 

@@ -21,10 +21,10 @@ from keras.utils import plot_model
 
 # 模型初始化
 class Classification_Model(object):
-    def __init__(self, config, model_name, embeddings):
+    def __init__(self, config, embeddings):
         self.config = config
         self.embeddings = embeddings
-        self.model_name = model_name
+        self.model_name = config.model_name
         self.model = None
 
     def predict(self, X, *args, **kwargs):
@@ -44,6 +44,7 @@ class Classification_Model(object):
     def plot(self, filepath):
         plot_model(self.model, to_file = filepath)
 
+    # bug
     def __getattr__(self, name):
         return getattr(self.model, name)
 
@@ -62,7 +63,7 @@ def embedding_layers(config, embeddings=None):
 
 # 单注意力层次网络
 class HAN(Classification_Model):
-    def __init__(self, config, model_name, embeddings=None):
+    def __init__(self, config, embeddings=None):
         # 定义模型输入
         sent_inputs = Input(shape=(config.max_words,), dtype='float64')
         doc_inputs = Input(shape=(config.max_sents, config.max_words), dtype='float64')
@@ -83,10 +84,10 @@ class HAN(Classification_Model):
         # FC
         fc1_drop = Dropout(config.drop_rate[1])(doc_att)
         fc1_bn = BatchNormalization()(fc1_drop)
-        fc1 = Dense(config.fc_units, activation=config.activation_func,
+        fc1 = Dense(config.fc_units[0], activation=config.activation_func,
                     kernel_initializer='he_normal',
                     kernel_regularizer=regularizers.l2(0.01))(fc1_bn)
-        fc2_drop = Dropout(config.drop_prob[2])(fc1)
+        fc2_drop = Dropout(config.drop_rate[1])(fc1)
         # 输出
         doc_pred = Dense(config.ntags, activation=config.classifier)(fc2_drop)
         # 最终模型
@@ -111,11 +112,11 @@ class SelfAtt(Classification_Model):
         sent_att = Self_Attention(config.ws1, config.r, punish=False, name='SelfAttLayer')(sent_enc)
         # FC
         flat = Flatten()(sent_att)
-        fc = Dense(config.fc_units, activation=config.activation_func,
+        fc = Dense(config.fc_units[0], activation=config.activation_func,
                     kernel_initializer='he_normal',
                     kernel_regularizer=regularizers.l2(0.01))(flat)
         # 输出
-        output = Dense(config.ntag, activation=config.classifier)(fc)
+        output = Dense(config.ntags, activation=config.classifier)(fc)
         # 最终模型
         self.model = Model(inputs=sent_inputs, outputs=output)
         self.config = config
@@ -132,7 +133,7 @@ class MHAN(Classification_Model):
         # 嵌入层
         embed = embedding_layers(config, embeddings)(sent_inputs)
         # 句子编码
-        sent_enc = Bidirectional(GRU(config.rnn_units[0], dropout=config.drop_prob[0],
+        sent_enc = Bidirectional(GRU(config.rnn_units[0], dropout=config.drop_rate[0],
                                       recurrent_dropout=config.re_drop[0],
                                       return_sequences=True))(embed)
         sent_att = Self_Attention(config.ws1[0], config.r[0], False, name='SelfAttLayer')(sent_enc)
@@ -140,7 +141,7 @@ class MHAN(Classification_Model):
         sent_model = Model(sent_inputs, sent_flat)
         # 段落编码
         doc_emb = TimeDistributed(sent_model)(doc_inputs)
-        doc_enc = Bidirectional(GRU(config.rnn_units[1], dropout=config.drop_prob[1],
+        doc_enc = Bidirectional(GRU(config.rnn_units[1], dropout=config.drop_rate[1],
                                     recurrent_dropout=config.re_drop[1],
                                     return_sequences=True))(doc_emb)
         doc_att = Self_Attention(config.ws1[1], config.r[1], False, name='SelfAttLayer')(doc_enc)
@@ -150,7 +151,7 @@ class MHAN(Classification_Model):
                    kernel_initializer = 'he_normal',
                    kernel_regularizer=regularizers.l2(0.01))(doc_flat)
         # 输出
-        output = Dense(config.ntag, activation=config.classifier)(fc)
+        output = Dense(config.ntags, activation=config.classifier)(fc)
         # 最终模型
         self.model = Model(inputs=doc_inputs, outputs=output)
         self.config = config
@@ -168,11 +169,11 @@ class Bi_RNN(Classification_Model):
         embed = embedding_layers(config, embeddings)(sent_inputs)   
         # 句子编码
         sent_enc = Bidirectional(GRU(config.rnn_units[0], 
-                                     dropout=config.drop_prob[0],
+                                     dropout=config.drop_rate[0],
                                      recurrent_dropout=config.re_drop[0],
                                      return_sequences=True))(embed)
         # 输出
-        output = Dense(config.ntag, activation=config.classifier)(sent_enc)
+        output = Dense(config.ntags, activation=config.classifier)(sent_enc)
         # 最终模型
         self.model = Model(inputs=sent_inputs, outputs=output)
         self.config = config
@@ -194,11 +195,11 @@ class TextCNN(Classification_Model):
         # FC
         flat = Flatten()(cnn_all)
         drop = Dropout(config.drop_rate[0])(flat)
-        fc = Dense(config.fc_units, activation=config.activation_func, 
+        fc = Dense(config.fc_units[0], activation=config.activation_func, 
                    kernel_initializer = 'he_normal',
                    kernel_regularizer=regularizers.l2(0.01))(drop)
         # 输出
-        output = Dense(config.ntag, activation=config.classifier)(fc)
+        output = Dense(config.ntags, activation=config.classifier)(fc)
         # 最终模型
         self.model = Model(inputs=sent_inputs, outputs=output)
         self.config = config
@@ -223,11 +224,11 @@ class TextCNNBN(Classification_Model):
         cnn_all = concatenate(cnn_combine, axis=-1)
         # FC
         flat = Flatten()(cnn_all)
-        fc = Dense(config.fc_units, kernel_initializer='he_normal')(flat)
+        fc = Dense(config.fc_units[0], kernel_initializer='he_normal')(flat)
         bn = BatchNormalization()(fc)
         relu = Activation(config.activation_func)(bn)
         # 输出
-        output = Dense(config.ntag, activation=config.classifier)(relu)
+        output = Dense(config.ntags, activation=config.classifier)(relu)
         # 最终模型
         self.model = Model(inputs=sent_inputs, outputs=output)
         self.config = config
@@ -260,7 +261,7 @@ class TextInception(Classification_Model):
         bn = BatchNormalization()(flat)
         relu = Activation(config.activation_func)(bn)
         # 输出
-        output = Dense(config.ntag, activation=config.classifier)(relu)
+        output = Dense(config.ntags, activation=config.classifier)(relu)
         # 最终模型
         self.model = Model(inputs=sent_inputs, outputs=output)
         self.config = config
@@ -289,21 +290,40 @@ class convRNN(Classification_Model):
         final = concatenate([last_state_for, pool, last_state_back], axis = 1)
         # FC
         flat = Flatten()(final)
-        fc = Dense(config.fc_units, activation=config.activation_func)(flat)
+        fc = Dense(config.fc_units[0], activation=config.activation_func)(flat)
         # 输出
-        output = Dense(config.ntag, activation=config.classifier)(fc)   
+        output = Dense(config.ntags, activation=config.classifier)(fc)   
+        # 最终模型
+        self.model = Model(inputs=sent_inputs, outputs=output)
+        self.config = config
+
+# fasttext
+# from paper "Bag of Tricks for Efficient Text Classification(2016)"
+class fasttext(Classification_Model):
+    def __init__(self, config, embeddings=None):
+        # 定义模型输入
+        sent_inputs = Input(shape=(config.max_words,), dtype='float64')
+        # 嵌入层
+        embed = embedding_layers(config, embeddings)(sent_inputs)
+        # 句子编码        
+        pool = GlobalAveragePooling1D()(embed)
+        # 输出
+        output = Dense(config.ntags, activation=config.classifier)(pool)
         # 最终模型
         self.model = Model(inputs=sent_inputs, outputs=output)
         self.config = config
 
 
+'''
+Test model
+'''
 def char_word_HAN(max_words, max_sents, embed_size, vocab_cnt, gru_units,
-                  drop_prob, att_size, re_drop, num_labels, fc_units, classifier,
+                  drop_rate, att_size, re_drop, num_labels, fc_units, classifier,
                   loss_function, activation_func, pre_trained, embedding_matrix):
     word_sent_inputs = Input(shape=(max_words[0],), dtype='float64')
     word_embed = embedding_layers(vocab_cnt[0], embed_size, max_words[0],
                                   embedding_matrix[0], pre_trained)(word_sent_inputs)
-    word_sent_enc = Bidirectional(GRU(gru_units[0], dropout=drop_prob[0],
+    word_sent_enc = Bidirectional(GRU(gru_units[0], dropout=drop_rate[0],
                                       recurrent_dropout=re_drop[0],
                                       return_sequences=True))(word_embed)
     word_sent_att = Attention(att_size[0], name='AttLayer')(word_sent_enc)
@@ -313,20 +333,20 @@ def char_word_HAN(max_words, max_sents, embed_size, vocab_cnt, gru_units,
                             dtype='float64',
                             name='word_inputs')
     word_doc_emb = TimeDistributed(word_sent_model)(word_doc_inputs)
-    word_doc_enc = Bidirectional(GRU(gru_units[1], dropout=drop_prob[1],
+    word_doc_enc = Bidirectional(GRU(gru_units[1], dropout=drop_rate[1],
                                      recurrent_dropout=re_drop[1],
                                      return_sequences=True))(word_doc_emb)
     word_doc_att = Attention(att_size[1], name='AttLayer_word')(word_doc_enc)
 
-    word_fc1_drop = Dropout(drop_prob[1])(word_doc_att)
+    word_fc1_drop = Dropout(drop_rate[1])(word_doc_att)
     word_fc1 = Dense(fc_units, activation=activation_func,
                      kernel_initializer='he_normal')(word_fc1_drop)
-    word_fc2_drop = Dropout(drop_prob[2])(word_fc1)
+    word_fc2_drop = Dropout(drop_rate[2])(word_fc1)
 
     char_sent_inputs = Input(shape=(max_words[1],), dtype='float64')
     char_embed = embedding_layers(vocab_cnt[1], embed_size, max_words[1],
                                   embedding_matrix[1], pre_trained)(char_sent_inputs)
-    char_sent_enc = Bidirectional(GRU(gru_units[0], dropout=drop_prob[0],
+    char_sent_enc = Bidirectional(GRU(gru_units[0], dropout=drop_rate[0],
                                       recurrent_dropout=re_drop[0],
                                       return_sequences=True))(char_embed)
     char_sent_att = Attention(att_size[2], name='AttLayer')(char_sent_enc)
@@ -336,15 +356,15 @@ def char_word_HAN(max_words, max_sents, embed_size, vocab_cnt, gru_units,
                             dtype='float64',
                             name='char_inputs')
     char_doc_emb = TimeDistributed(char_sent_model)(char_doc_inputs)
-    char_doc_enc = Bidirectional(GRU(gru_units[1], dropout=drop_prob[1],
+    char_doc_enc = Bidirectional(GRU(gru_units[1], dropout=drop_rate[1],
                                 recurrent_dropout=re_drop[1],
                                 return_sequences=True))(char_doc_emb)
     char_doc_att = Attention(att_size[3], name='AttLayer_char')(char_doc_enc)
 
-    char_fc1_drop = Dropout(drop_prob[1])(char_doc_att)
+    char_fc1_drop = Dropout(drop_rate[1])(char_doc_att)
     char_fc1 = Dense(fc_units, activation=activation_func,
                      kernel_initializer='he_normal')(char_fc1_drop)
-    char_fc2_drop = Dropout(drop_prob[2])(char_fc1)
+    char_fc2_drop = Dropout(drop_rate[2])(char_fc1)
     
     merge_info = concatenate([word_fc2_drop, char_fc2_drop], axis=1)
     output = Dense(num_labels, activation=classifier, name = 'out')(merge_info)
@@ -358,12 +378,12 @@ def char_word_HAN(max_words, max_sents, embed_size, vocab_cnt, gru_units,
     return model
 
 def sent_word_HAN(add_shape, max_words, max_sents, embed_size, vocab_cnt, gru_units,
-                  drop_prob, att_size, re_drop, num_labels, fc_units, classifier,
+                  drop_rate, att_size, re_drop, num_labels, fc_units, classifier,
                   loss_function, activation_func, pre_trained, embedding_matrix):
     sent_inputs = Input(shape=(max_words,), dtype = 'float64')
     embed = embedding_layers(vocab_cnt, embed_size, max_words,
                              embedding_matrix, pre_trained)(sent_inputs)
-    sent_enc = Bidirectional(GRU(gru_units[0], dropout = drop_prob[0],
+    sent_enc = Bidirectional(GRU(gru_units[0], dropout = drop_rate[0],
                                  recurrent_dropout = re_drop[0],
                                  return_sequences = True))(embed)
     sent_att = Attention(att_size[0], name='AttLayer')(sent_enc)
@@ -372,19 +392,19 @@ def sent_word_HAN(add_shape, max_words, max_sents, embed_size, vocab_cnt, gru_un
     doc_inputs = Input(shape = (max_sents, max_words), dtype = 'float64', name = 'text_inputs')
     addtional_inputs = Input(shape = (add_shape,), name = 'addtional_inputs')
     doc_emb = TimeDistributed(sent_model)(doc_inputs)
-    doc_enc = Bidirectional(GRU(gru_units[1], dropout = drop_prob[1],
+    doc_enc = Bidirectional(GRU(gru_units[1], dropout = drop_rate[1],
                                 recurrent_dropout = re_drop[1],
                                 return_sequences = True))(doc_emb)
     
     doc_att = Attention(att_size[1], name='AttLayer')(doc_enc)
     sent_output = Dense(num_labels, activation = classifier, name = 'att_output')(doc_att)
     new_tensor = concatenate([doc_att, addtional_inputs])
-    fc1_drop = Dropout(drop_prob[1])(new_tensor)
+    fc1_drop = Dropout(drop_rate[1])(new_tensor)
     #fc1_bn = BatchNormalization()(doc_att)
     fc1 = Dense(fc_units, activation = activation_func,
                 kernel_initializer = 'he_normal',
                 kernel_regularizer=regularizers.l2(0.01))(fc1_drop)
-    fc2_drop = Dropout(drop_prob[2])(fc1)
+    fc2_drop = Dropout(drop_rate[2])(fc1)
     #fc2_bn = BatchNormalization()(fc1)
     doc_pred = Dense(num_labels, activation = classifier, name = 'model_output')(fc2_drop)
 
@@ -415,19 +435,7 @@ def one_hot_mdoel(vocab_cnt, drop_rate, fc_units, num_labels, activation_func,
 def generate_ngram():
     pass
 
-def fasttext(vocab_cnt, max_words, embed_size, embedding_matrix, 
-             pre_trained, num_labels, classifier, loss_func):
-    model = Sequential()
-    model.add(embedding_layers(vocab_cnt, embed_size, max_words,
-                             embedding_matrix, pre_trained))
-    model.add(GlobalAveragePooling1D())
-    model.add(Dense(num_labels, activation=classifier))
-    
-    opt = optimizers.Adam(clipnorm=1.)
-    model.compile(loss=loss_func,
-                  optimizer= opt ,
-                  metrics=['accuracy'])
-    return model
+
 
 
 
