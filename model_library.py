@@ -49,16 +49,16 @@ def embedding_layers(config, embeddings=None):
     if embeddings is None:
         print('Using word embeddings from straching...')
         embed = Embedding(input_dim=config.vocab_cnt+1,
-                            output_dim=config.embed_size)
+                          output_dim=config.embed_size)
     else:
         print('Using pretrained word embeddings...')
         embed = Embedding(input_dim=config.vocab_cnt+1,
-                            output_dim=config.embed_size,
-                            weights=[embeddings])
+                          output_dim=config.embed_size,
+                          weights=[embeddings])
     return embed
 
 class HAN(Classification_Model):
-    def __init__(self, config, model_name='HAN', embeddings=None, ntags=None):
+    def __init__(self, config, model_name='HAN', embeddings=None):
         self.model_name = model_name
         # 定义模型输入
         sent_inputs = Input(shape=(config.max_words,), dtype='float64')
@@ -66,26 +66,26 @@ class HAN(Classification_Model):
         # 嵌入层
         embed = embedding_layers(config, embeddings)(sent_inputs)
         # 句子编码
-        sent_enc = Bidirectional(GRU(config.gru_units[0], dropout=config.drop_prob[0],
+        sent_enc = Bidirectional(GRU(config.rnn_units[0], dropout=config.drop_prob[0],
                                       recurrent_dropout=config.re_drop[0],
                                       return_sequences=True))(embed)
         sent_att = Attention(config.att_size[0], name='AttLayer')(sent_enc)
         self.sent_model = Model(sent_inputs, sent_att)
         # 段落编码
         doc_emb = TimeDistributed(self.sent_model)(doc_inputs)
-        doc_enc = Bidirectional(GRU(config.gru_units[1], dropout=config.drop_prob[1],
+        doc_enc = Bidirectional(GRU(config.rnn_units[1], dropout=config.drop_prob[1],
                                      recurrent_dropout=config.re_drop[1],
                                      return_sequences=True))(doc_emb)
         doc_att = Attention(config.att_size[1], name='AttLayer')(doc_enc)
         # FC
-        fc1_drop = Dropout(config.drop_prob[1])(doc_att)
+        fc1_drop = Dropout(config.drop_rate[1])(doc_att)
         fc1_bn = BatchNormalization()(fc1_drop)
         fc1 = Dense(config.fc_units, activation=config.activation_func,
                     kernel_initializer='he_normal',
                     kernel_regularizer=regularizers.l2(0.01))(fc1_bn)
         fc2_drop = Dropout(config.drop_prob[2])(fc1)
         # 输出
-        doc_pred = Dense(ntags, activation=config.classifier)(fc2_drop)
+        doc_pred = Dense(config.ntags, activation=config.classifier)(fc2_drop)
         # 最终模型
         self.model = Model(inputs=doc_inputs, outputs=doc_pred)
         self.config = config
@@ -96,14 +96,14 @@ class HAN(Classification_Model):
 
 
 class SelfAtt(Classification_Model):
-    def __init__(self, config, model_name='self_att', embeddings=None, ntag=None):
+    def __init__(self, config, model_name='self_att', embeddings=None):
         self.model_name = model_name
         # 定义模型输入
         sent_inputs = Input(shape=(config.max_words,), dtype='float64')
         # 嵌入层
         embed = embedding_layers(config, embeddings)(sent_inputs)
         # 句子编码
-        sent_enc = Bidirectional(GRU(config.rnn_units[0], dropout=config.drop_prob[0],
+        sent_enc = Bidirectional(GRU(config.rnn_units[0], dropout=config.drop_rate[0],
                                       recurrent_dropout=config.re_drop[0],
                                       return_sequences=True))(embed)
         sent_att = Self_Attention(350, config.r, punish=False, name='SelfAttLayer')(sent_enc)
@@ -113,13 +113,19 @@ class SelfAtt(Classification_Model):
                     kernel_initializer='he_normal',
                     kernel_regularizer=regularizers.l2(0.01))(flat)
         # 输出
-        output = Dense(ntag, activation=config.classifier)(fc1)
+        output = Dense(config.ntag, activation=config.classifier)(fc1)
         # 最终模型
         self.model = Model(inputs=sent_inputs, outputs=output)
         self.config = config
 
     def get_attentions(self, sequences):
         return get_attention(self.model, None, sequences, self.model_name)
+
+class MHAN(Classification_Model):
+    def __init__(self, config, model_name='MHAN', embeddings=None):
+        self.model_name = model_name
+        # 定义模型输入
+        
 
 
 def cnn_bn_block(conv_size, n_gram, padding_method, activation_func, last_layer):

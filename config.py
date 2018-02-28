@@ -4,20 +4,29 @@ import json
 class ModelConfig(object):
     """Wrapper class for model hyperparameters."""
 
-    def __init__(self, max_words, embed_size, vocab_cnt, r, drop_rate,
-                 fc_units=64, rnn_units=[256,128], model_name):
-        self.max_words = max_words
-        self.embed_size = embed_size
-        self.vocab_cnt = vocab_cnt
-        self.drop_rate = drop_rate
-        self.fc_units = fc_units
-        self.rnn_units = rnn_units
-        self.
+    def __init__(self, max_words, max_sents, embed_size, vocab_cnt, r, 
+                 drop_rate=[0.5,0.3], re_drop=[0.25,0.15], fc_units=64, 
+                 rnn_units=[256,128], activation_func='relu', classifier='sigmoid', 
+                 ntags=2, model_name):
+        self.max_words = max_words #句子序列最大长度
+        self.embed_size = embed_size #词向量维度
+        self.vocab_cnt = vocab_cnt #词语总数
+        self.drop_rate = drop_rate #丢弃率
+        self.re_drop = re_drop #丢弃率（rnn）
+        self.fc_units = fc_units #fc层输出维度
+        self.rnn_units = rnn_units #rnn层输出维度
+        self.activation_func = activation_func #激活函数
+        self.classifier = classifier #分类器
+        if ntags > 2:
+            self.classifier = 'softmax'
 
         if model_name in ['HAN', 'MHAN', 'Self_Att']:
+            self.att_size = att_size
             if model_name == 'Self_Att':
                 self.ws1 = 350
                 self.r = r
+            else:
+                self.max_sents = max_sents
 
         if model_name == 'TextCNN':
             self.
