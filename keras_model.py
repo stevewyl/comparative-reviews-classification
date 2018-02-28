@@ -42,49 +42,6 @@ from tools import get_attention
 from utils import plot_loss_accuray, save_txt_data, split_sent
 from utils import customed_heatmap, read_line_data
 
-def read_x_data(df):
-    le = LabelEncoder().fit(df['sent_bin'])
-    df['sentiment'] = le.transform(df['sent_bin'])
-    hidden_index = df.index[df['H'] == 1].tolist()
-    comp = df[df['Yes/No'] == 1][['cleaned_reviews', 'sentiment']]
-    non = df[df['Yes/No'] == 0][['cleaned_reviews', 'sentiment']]
-    equal = df[(df['平比'] == 1) & (df['H'] == 0)][['cleaned_reviews', 'sentiment']]
-    notequal = df[(df['Yes/No'] == 1) & (df['H'] == 0) & (df['平比'] != 1)][['cleaned_reviews', 'sentiment']]
-    most_comp =  df[(df['差比'] == 3) & (df['H'] == 0)][['cleaned_reviews', 'sentiment']]
-    hidden = df[df['H'] == 1][['cleaned_reviews', 'sentiment']]
-    not_hidden = df[(df['Yes/No'] == 1) & (df['H'] == 0)][['cleaned_reviews', 'sentiment']]
-    print('text data load succeed')
-    return comp, non, hidden, not_hidden, equal, notequal, most_comp, hidden_index
-
-# 载入词向量矩阵
-def load_embeddings(fname, vocab, n_dim):
-    embeddings_index = {}
-    f = open(fname, encoding = 'utf-8')
-    for line in f:
-        values = line.split()
-        word = values[0]
-        coefs = np.asarray(values[1:], dtype='float32')
-        embeddings_index[word] = coefs
-    f.close()
-    embedding_matrix = np.zeros((len(vocab) + 1, n_dim))
-    for word, i in vocab.items():
-        embedding_vector = embeddings_index.get(word)
-        if embedding_vector is not None:
-            embedding_matrix[i] = embedding_vector
-    return embedding_matrix
-
-# get the text and target
-def get_x_y(dataset, mode):
-    x, y, s= [], [], []
-    for i in range(len(dataset)):
-        x += dataset[i]['cleaned_reviews'].tolist()
-        s += dataset[i]['sentiment'].tolist()
-        y += [i for _ in range(dataset[i].shape[0])]
-    if mode == 'char':
-        x = [re.sub(' ','',sent) for sent in x]
-        x = [[char for char in sent] for sent in x]
-        x = [' '.join(sent) for sent in x]
-    return x, y, s
 
 # 对文本进行序列化处理
 def get_sequences(tokenizer, train_data, mode, max_length):
@@ -240,39 +197,7 @@ def cv_train(x, y, batch_size, n_epochs, num_labels, max_words,
     print('total average f1 score: ', np.mean(total_score))
     return comp_score, non_score, total_score, wrong_samples
 
-# 单次模型
-def single_training(model, x, y, batch_size, n_epochs, test_size, num_labels,
-                    max_words, text_mode, pre_trained):
-    tensorboard = TensorBoard(log_dir = './tmp/log',
-                              histogram_freq = 0,
-                              write_graph = True,
-                              write_grads = True)
-    checkpoint = ModelCheckpoint(weights_name, monitor = 'val_acc', verbose = 1,
-                                 save_best_only = True, mode = 'max')
-    early_stopping = EarlyStopping(monitor = 'val_loss', patience = 2)
-    lrate = LearningRateScheduler(step_decay)
 
-    history = model.fit(x[0], y[0],
-                        batch_size = batch_size,
-                        epochs = n_epochs,
-                        validation_data = (x[1], y[1]),
-                        callbacks = [checkpoint, early_stopping, lrate])
-    if SAVE_MODEL:
-        model_yaml = model.to_yaml()
-        with open(m_name, "w") as yaml_file:
-            yaml_file.write(model_yaml)
-        #model.save_weights(weights_name)
-    predicted = model.predict(x[1])
-    y_true = np.argmax(y[1], axis = 1)
-    y_pred = np.argmax(predicted, axis = 1)
-    print("\naccuracy score: {:.3f}".format(accuracy_score(y_true, y_pred)))
-    print("\nconfusion matrix\n")
-    print(confusion_matrix(y_true, y_pred))
-    print("\nclassification report\n")
-    print(classification_report(y_true, y_pred))
-    plot_loss_accuray(history)
-    
-    return y_true, y_pred, predicted, history, model
 
 # 载入训练好的模型预测新样本
 def model_predict(model_file, weigths_file, test_data):
@@ -309,17 +234,43 @@ def visualize_attention(x_test, y_true, sent_model, doc_model, date, word2idx, l
     #pprint(important_words)
     return sent_all_att, doc_all_att
 
-def train(CV, x, y, tokenizer, date):
+# 单次模型
+def single_training(model, x, y, train_cfg, test_szie, ):
+    tensorboard = TensorBoard(log_dir='./tmp/log',
+                              histogram_freq=0,
+                              write_graph=True,
+                              write_grads=True)
+    checkpoint = ModelCheckpoint(weights_name, monitor='val_acc', verbose=1,
+                                 save_best_only=True, mode='max')
+    early_stopping = EarlyStopping(monitor='val_loss', patience=train_cfg.patience)
+    lrate = LearningRateScheduler(step_decay)
+
+    history = model.fit(x[0], y[0],
+                        batch_size=batch_size,
+                        epochs=n_epochs,
+                        validation_data=(x[1], y[1]),
+                        callbacks=[checkpoint, early_stopping, lrate])
+    if SAVE_MODEL:
+        model_yaml = model.to_yaml()
+        with open(m_name, "w") as yaml_file:
+            yaml_file.write(model_yaml)
+        #model.save_weights(weights_name)
+    predicted = model.predict(x[1])
+    y_true = np.argmax(y[1], axis=1)
+    y_pred = np.argmax(predicted, axis=1)
+    print("\naccuracy score: {:.3f}".format(accuracy_score(y_true, y_pred)))
+    print("\nconfusion matrix\n")
+    print(confusion_matrix(y_true, y_pred))
+    print("\nclassification report\n")
+    print(classification_report(y_true, y_pred))
+    plot_loss_accuray(history)
+
+    return y_true, y_pred, predicted, history, model
+
+def train(CV, x, y, tokenizer, date, model, train_cfg, embed_mat):
     if not CV:
-        # 模型初始化
-        if MODEL_NAME in ['HAN','HMAN']:
-            model = 
-        else:
-            doc_MODEL = model_build(MODEL_NAME, NUM_LABELS, MAX_WORDS, PRE_TRAINED)
         # 切分训练集和测试集
-        X_train, X_test, Y_train, Y_test = train_test_split(x, y, 
-                                                            test_size = TEST_SIZE) 
-                                                            #random_state = 2017)
+        X_train, X_test, Y_train, Y_test = train_test_split(x, y, test_size = TEST_SIZE)
         Y_train = to_categorical(Y_train)
         Y_test = to_categorical(Y_test)
         x_train = np.array(get_sequences(tokenizer, X_train, TEXT_FORMAT, MAX_WORDS))
@@ -330,9 +281,7 @@ def train(CV, x, y, tokenizer, date):
         x = [x_train, x_test]
         y = [Y_train, Y_test]
         # 开始训练
-        y_true, y_pred, prob, history, model = single_training(doc_MODEL, x, y, BATCH_SIZE, N_EPOCHS,
-                                               TEST_SIZE, NUM_LABELS, MAX_WORDS, 
-                                               TEXT_FORMAT, PRE_TRAINED)
+        y_true, y_pred, prob, history, model = single_training(model, x, y, train_cfg, TEST_SIZE,TEXT_FORMAT)
         
         print('error_analysis...')
         res = error_analysis(X_test, y_true, y_pred, prob, DATE, TEXT_FORMAT, 'single')
@@ -343,7 +292,7 @@ def train(CV, x, y, tokenizer, date):
         # 可视化
         if MODEL_NAME in ['HAN', 'HMAN'] and ATTENTION_V:
             print('attention weights visualization...')
-            sent_all_att_0, doc_att_0 = visualize_attention(x_test, y_true, sent_MODEL, doc_MODEL, date, word2idx, 0, RAND)
+            sent_all_att_0, doc_att_0 = visualize_attention(x_test, y_true, model.sent_model, model, date, word2idx, 0, RAND)
             #sent_all_att_1, doc_att_1 = visualize_attention(x_test, y_true, sent_MODEL, doc_MODEL, date, word2idx, 1, RAND)
 
         #print('plotting roc curve...')
@@ -384,8 +333,7 @@ def train(CV, x, y, tokenizer, date):
 
 if __name__ == '__main__':
     # 读入数据
-    df = pd.read_excel('./data/jd_comp_final_v5.xlsx')
-    comp, non, hidden, not_hidden, equal, notequal, most_comp, hidden_index = read_x_data(df)
+    sent, labels, _ = load_data_and_labels('./data/jd_comp_final_v5.xlsx', ['not_hiden', 'non'], 'word')
 
     # 一些参数（包含训练超参）
     DATASET = [not_hidden, non]
@@ -469,8 +417,10 @@ if __name__ == '__main__':
     # 单次训练还是交叉验证训练
     print(EMBED_TYPE + ' model ' + MODEL_NAME + ' start training...')
 
+    # 模型初始化
+    model = HAN(model_cfg, embedding_matrix)
     # 模型训练
-    result = train(CV, x, y, tokenizer, DATE)
+    result = train(CV, x, y, tokenizer, DATE, model, train_cfg)
 
     # 样例可视化
     show_text = read_line_data('./data/reviews_example.txt')

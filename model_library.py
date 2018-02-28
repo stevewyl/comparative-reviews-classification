@@ -134,9 +134,9 @@ class MHAN(Classification_Model):
                                       return_sequences=True))(embed)
         sent_att = Self_Attention(config.ws1[0], config.r[0], False, name='SelfAttLayer')(sent_enc)
         sent_flat = Flatten()(sent_att)
-        sent_model = Model(sent_inputs, sent_flat)
+        self.sent_model = Model(sent_inputs, sent_flat)
         # 段落编码
-        doc_emb = TimeDistributed(sent_model)(doc_inputs)
+        doc_emb = TimeDistributed(self.sent_model)(doc_inputs)
         doc_enc = Bidirectional(GRU(config.rnn_units[1], dropout=config.drop_rate[1],
                                     recurrent_dropout=config.re_drop[1],
                                     return_sequences=True))(doc_emb)
@@ -144,7 +144,7 @@ class MHAN(Classification_Model):
         # FC
         doc_flat = Flatten()(doc_att)
         fc = Dense(config.fc_units[0], activation=config.activation_func,
-                   kernel_initializer = 'he_normal',
+                   kernel_initializer='he_normal',
                    kernel_regularizer=regularizers.l2(0.01))(doc_flat)
         # 输出
         output = Dense(config.ntags, activation=config.classifier)(fc)

@@ -24,8 +24,6 @@ def load_data(data_file):
     not_hidden = df[(df['Yes/No'] == 1) & (df['H'] == 0)]['cleaned_reviews']
     return comp, non, hidden, not_hidden
 
-
-
 def get_x_y(dataset):
    x, y = [], []
    for i in range(len(dataset)):

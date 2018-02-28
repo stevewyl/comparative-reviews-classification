@@ -12,7 +12,7 @@ import jieba
 client = MongoClient('mongodb://localhost:27017/')
 db = client['jd']
 files = glob.glob('./data/labeled_files/*.xlsx')
-pattern = re.compile('(?<=\.).*(?=_)')
+pattern = re.compile(r'(?<=\.).*(?=_)')
 filelist = [pattern.search(f).group()[1:] for f in files]
 filename = sorted(set(filelist), key = filelist.index)
 
@@ -29,11 +29,11 @@ def remove_duplicate(f):
     df['comment_clean'] = df['comment_clean'].fillna('n')
     df = df[df.comment_clean != 'n']
     df = df.reset_index(drop = True)
-    df['Yes/No'] = df['Yes/No'].astype(np.float64)
+    df['Yes/No'] = df['Yes/No'].astype(np.float32)
     return df
 
 def change_review(collection, df):
-    for index, row in df.iterrows():
+    for _, row in df.iterrows():
         time = row['time']
         user = row['user']
         review_db = collection.find_one({'time':time,'user':user})

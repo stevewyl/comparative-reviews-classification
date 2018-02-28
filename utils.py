@@ -10,7 +10,7 @@ from collections import Counter
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.metrics import roc_curve, auc
 from sklearn.model_selection import StratifiedKFold
-from langconv import *
+from langconv import Converter
 import matplotlib.pyplot as plt
 from plotly.offline import plot
 import plotly.graph_objs as go
