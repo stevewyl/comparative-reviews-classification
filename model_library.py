@@ -7,7 +7,7 @@ from tools import Attention, Self_Attention
 from tools import get_attention
 
 from keras.layers import concatenate
-from keras.models import Sequential, Model
+from keras.models import Sequential, Model, model_from_yaml
 from keras.layers import Dense, Embedding, Activation, merge, Input, Lambda, Reshape
 from keras.layers import Flatten, TimeDistributed
 from keras.layers import Convolution1D, MaxPool1D, GlobalAveragePooling1D
@@ -18,6 +18,7 @@ from keras import backend as K
 from keras.engine.topology import Layer
 from keras import optimizers
 from keras.utils import plot_model
+
 
 # 模型初始化
 class Classification_Model(object):
@@ -35,10 +36,18 @@ class Classification_Model(object):
         score = self.model.evaluate(X, y, batch_size=1)
         return score
 
-    def save(self, filepath):
+    def save_model(self, filepath):
+        yaml_string  = self.model.to_yaml()
+        with open(filepath, 'w') as f:
+            f.write(yaml_string)
+
+    def load_model(self, filepath):
+        return model_from_yaml(filepath)
+
+    def save_weights(self, filepath):
         self.model.save_weights(filepath)
 
-    def load(self, filepath):
+    def load_weights(self, filepath):
         self.model.load_weights(filepath=filepath)
 
     def plot(self, filepath):
@@ -248,7 +257,7 @@ class TextInception(Classification_Model):
                                            padding='same')(embed)
                 bn = BatchNormalization()(conv_net_1)
                 relu = Activation(config.activation_func)(bn)
-                conv_net_2 = Convolution1D(config.conv_size[1], f[1],
+                conv_net_2 = Convolution1D(config.conv_size[1], f[1], 
                                            padding='same')(relu)
                 cnn_combine.append(conv_net_2)
         inception = concatenate(cnn_combine, axis=-1)

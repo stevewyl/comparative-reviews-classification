@@ -30,7 +30,7 @@ class Trainer(object):
                            optimizers=Adam(lr=self.training_config.learning_rate),
                            metric=['accuracy'])
         callbacks = get_callbacks(log_dir=self.checkpoint_path,
-                                  tensorboard=self.tensorboard,
+                                  tensorBoard=self.tensorboard,
                                   eary_stopping=self.training_config.early_stopping,
                                   valid=(valid_steps, valid_batches))
         # 训练模型
