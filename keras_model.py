@@ -36,8 +36,8 @@ from keras.callbacks import TensorBoard, ModelCheckpoint, EarlyStopping
 from keras.callbacks import LearningRateScheduler
 from keras.models import model_from_yaml
 
-from model_library import TextCNNBN, TextInception, convRNN, HAN, HMAN, SelfAtt
-from model_library import AttLayer, fasttext, one_hot_mdoel, bi_rnn, TextCNN
+from model_library import TextCNNBN, TextInception, convRNN, HAN, HMAN, SelfAtt, fasttext, bi_rnn
+from config import ModelConfig, TrainingConfig
 from tools import get_attention
 from utils import plot_loss_accuray, save_txt_data, split_sent
 from utils import customed_heatmap, read_line_data
@@ -122,7 +122,6 @@ def eval_score(confusion_mat, num_labels):
 def remove_seq(text):
     return [re.sub('UNK', '', ' '.join(sent)) for sent in text]
 
-
 # 误差分析（句子长度，术语出现次数，比较特征词出现次数，是否是隐性比较句等）
 def error_analysis(x_test, y_true, y_pred, prob, date, text_mode, train_mode):
     close_samples_idx = [i for i,sample in enumerate(prob) if np.abs(sample[0]-sample[1])<0.25]
@@ -172,68 +171,6 @@ def check_hidden(df, wrong_samples):
     return round(cnt / len(wrong_samples), 4)
 
 # 各个模型的结构初始化及模型超参设置
-def model_build(name, num_labels, max_words, pre_trained, plot_structure = False):
-    if num_labels == 2:
-        classifier = 'sigmoid'
-        loss_function = 'binary_crossentropy'
-    else:
-        classifier = 'softmax'
-        loss_function = 'categorical_crossentropy'
-
-    if name == 'convRNN':
-        model = convRNN(max_words, EMBED_DIMS, len(vocab), 256, 
-                        0.25, [384,256], 1, 'same', 5, 128, 
-                        ACTIVATION, num_labels, classifier,
-                        loss_function, pre_trained, embedding_matrix)
-    elif name == 'TextCNNBN':
-        model = TextCNNBN(max_words, EMBED_DIMS, len(vocab), 
-                          [3,4,5], [256,128], 4, 'same', 256,
-                          num_labels, ACTIVATION, classifier,
-                          loss_function, pre_trained, embedding_matrix)
-    elif name == 'Inception':
-        model = TextInception(max_words, EMBED_DIMS, len(vocab),
-                              [[1],[1,3],[3,5],[3]], [256,128], 
-                              'same', 0.5, 256, num_labels, 
-                              ACTIVATION, classifier,loss_function, 
-                              pre_trained, embedding_matrix)
-    elif name == 'HAN':
-        model = HAN(max_words, MAX_SENTS, EMBED_DIMS, len(vocab), 
-                    [256,128], [0.4,0.25,0.15], [0.25,0.15], 
-                    num_labels, 64, classifier, loss_function,
-                    ACTIVATION, pre_trained, embedding_matrix)
-    elif name == 'HMAN':
-        model = HMAN([4,2], max_words, MAX_SENTS, EMBED_DIMS, len(vocab), 
-                     [256,128], [0.4,0.25,0.15], [0.25,0.15], 
-                     num_labels, 64, classifier, loss_function,
-                    ACTIVATION, pre_trained, embedding_matrix)
-    elif name == 'SelfAtt':
-        model = SelfAtt(10, max_words, EMBED_DIMS, len(vocab), 256, 
-                        0.25, 0.15, num_labels, 128, classifier, 
-                        loss_function, ACTIVATION, pre_trained,
-                        embedding_matrix)
-    elif name == 'fasttext':
-        model = fasttext(len(vocab), max_words, EMBED_DIMS, embedding_matrix,
-                         pre_trained, num_labels, classifier, loss_function)
-    elif name == 'one-hot':
-        model = one_hot_mdoel(len(vocab), 0.5, 512, num_labels, ACTIVATION,
-                              classifier, loss_function)
-    elif name == 'bi_rnn':
-        model = bi_rnn(len(vocab), EMBED_DIMS, max_words, embedding_matrix,
-                       pre_trained, 256, [0.25,0.15], num_labels, classifier,
-                       loss_function)
-    elif name == 'TextCNN':
-        model = TextCNN(len(vocab), EMBED_DIMS, max_words, embedding_matrix,
-                        pre_trained, 256, [3,4,5], 1, [5,5,5], 0.5, num_labels,
-                        classifier, loss_function, 256)
-    else:
-        print('This model does not exist in model_library.py')
-
-    # plot the model structure
-    if plot_structure:
-        plot_model(model, to_file = './result/model_' + name + '.png')
-
-    return model
-
 # 加载已经保存好的模型和权重矩阵
 def load_model(model_file, weights_file):
     yaml_file = open(model_file, 'r')
@@ -376,7 +313,7 @@ def train(CV, x, y, tokenizer, date):
     if not CV:
         # 模型初始化
         if MODEL_NAME in ['HAN','HMAN']:
-            sent_MODEL, doc_MODEL = model_build(MODEL_NAME, NUM_LABELS, MAX_WORDS, PRE_TRAINED)
+            model = 
         else:
             doc_MODEL = model_build(MODEL_NAME, NUM_LABELS, MAX_WORDS, PRE_TRAINED)
         # 切分训练集和测试集
@@ -457,9 +394,6 @@ if __name__ == '__main__':
     MODEL_NAME = 'HAN'
     CUT_MODE = 'simple'
     TEXT_FORMAT = 'text'
-    ACTIVATION = 'selu' 
-    BATCH_SIZE = 64
-    N_EPOCHS = 6
     TEST_SIZE = 0.2
     NUM_LABELS = len(DATASET)
     EMBED_FILE = './data/embeddings/word_vectors_256d_20171228_5.txt'
@@ -477,14 +411,12 @@ if __name__ == '__main__':
     CV = False #是否进行交叉验证
     CHECK_HIDDEN = False #是否检查隐性比较句的错误情况
     ATTENTION_V = False #是否可视化attention权重
-    SAVE_MODEL = False #是否保存模型结构
     PREDICT = False #是否预测新评论
     RAND = False
     
-    
-
     # 整理数据格式
     x, y, s= get_x_y(DATASET, EMBED_TYPE)
+
     if PREDICT:
         df_predict = pd.read_excel('./data/jd_20w_v2.xlsx')
         predict_text = df_predict['segment'].tolist()
@@ -514,7 +446,6 @@ if __name__ == '__main__':
         elif EMBED_TYPE == 'char':
             MAX_WORDS = 30
             MAX_SENTS = 6
-            N_EPOCHS = 3
         N_LIMIT = MAX_WORDS * MAX_SENTS
         x = [split_sent(sent, MAX_WORDS, MAX_SENTS, CUT_MODE) for sent in x]
         if PREDICT:
@@ -523,6 +454,11 @@ if __name__ == '__main__':
         new_name = MODEL_NAME + '_' + str(MAX_WORDS) + '_' + str(MAX_SENTS)
         m_name = './model/' + new_name + '_' + DATE + '.yaml'
         weights_name = './model/' + new_name + '_weights_' + DATE + '.hdf5'
+
+    # 初始化参数设置
+    model_cfg = ModelConfig(MAX_WORDS, MAX_SENTS, EMBED_DIMS, len(vocab), MODEL_NAME, ntags=2)
+    train_cfg = TrainingConfig()
+    
     # 读入预训练的词向量矩阵
     if PRE_TRAINED and MODEL_NAME != 'one-hot':
         print('loading word embeddings...')
@@ -532,29 +468,24 @@ if __name__ == '__main__':
 
     # 单次训练还是交叉验证训练
     print(EMBED_TYPE + ' model ' + MODEL_NAME + ' start training...')
-    #time.sleep(3600)
-    '''
-    r_lst = [[1,1],[3,3],[5,5],[8,5],[10,5]]
-    epoch_info = {}
-    for i in range(5):
-        tmp  = {}
-        R = r_lst[i]
-        print(R)
-        result = train(CV, x, y, tokenizer, DATE)
-        tmp['val_acc'] = result[4].history['val_acc']
-        tmp['val_loss'] = result[4].history['val_loss']
-        epoch_info[str(R[0])+'-'+str(R[1])] = tmp
-    '''
+
+    # 模型训练
     result = train(CV, x, y, tokenizer, DATE)
+
+    # 样例可视化
     show_text = read_line_data('./data/reviews_example.txt')
     xx = [split_sent(sent, MAX_WORDS, MAX_SENTS, CUT_MODE) for sent in show_text]
     xxx = np.array(get_sequences(tokenizer, xx, TEXT_FORMAT, MAX_WORDS))
-    aa=visualize_attention(xxx,result[0],result[-1],result[-2], DATE, word2idx,0,False)
+    aa = visualize_attention(xxx, result[0], result[-1], result[-2], DATE, word2idx, 0, False)
+
+    # 检查隐性比较句
     if CHECK_HIDDEN:
         print(check_hidden(comp, result[3][1]))
         print(check_hidden(hidden, result[3][1]))
         print(check_hidden(equal, result[3][1]))
         print(check_hidden(notequal, result[3][1]))
+
+    # 单次模型预测
     if not CV and PREDICT:
         print('predict labels for new reviews...')
         model = result[4]

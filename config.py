@@ -4,9 +4,10 @@ import json
 class ModelConfig(object):
     """Wrapper class for model hyperparameters."""
 
-    def __init__(self, max_words, embed_size, vocab_cnt,
+    def __init__(self, max_words, max_sents, embed_size, vocab_cnt,
                  model_name, ntags=2):
         self.max_words = max_words #句子序列最大长度
+        self.max_sents = max_sents #最多句子数量
         self.embed_size = embed_size #词向量维度
         self.vocab_cnt = vocab_cnt #词语总数
         self.drop_rate = [0.5,0.3] #丢弃率

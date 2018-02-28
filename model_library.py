@@ -52,11 +52,11 @@ class Classification_Model(object):
 def embedding_layers(config, embeddings=None):
     if embeddings is None:
         print('Using word embeddings from straching...')
-        embed = Embedding(input_dim=config.vocab_cnt+1,
+        embed = Embedding(input_dim=config.vocab_cnt,
                           output_dim=config.embed_size)
     else:
         print('Using pretrained word embeddings...')
-        embed = Embedding(input_dim=config.vocab_cnt+1,
+        embed = Embedding(input_dim=config.vocab_cnt,
                           output_dim=config.embed_size,
                           weights=[embeddings])
     return embed
@@ -100,7 +100,7 @@ class HAN(Classification_Model):
 
 # 多注意力网络
 class SelfAtt(Classification_Model):
-    def __init__(self, config, model_name, embeddings=None):
+    def __init__(self, config, embeddings=None):
         # 定义模型输入
         sent_inputs = Input(shape=(config.max_words,), dtype='float64')
         # 嵌入层
@@ -126,7 +126,7 @@ class SelfAtt(Classification_Model):
 
 # 多注意力层次网络
 class MHAN(Classification_Model):
-    def __init__(self, config, model_name, embeddings=None):
+    def __init__(self, config, embeddings=None):
         # 定义模型输入
         sent_inputs = Input(shape=(config.max_words,), dtype='float64')
         doc_inputs = Input(shape=(config.max_sents, config.max_words), dtype='float64')
@@ -162,7 +162,7 @@ class MHAN(Classification_Model):
 
 # 双向RNN模型
 class Bi_RNN(Classification_Model):
-    def __init__(self, config, model_name, embeddings=None):
+    def __init__(self, config, embeddings=None):
         # 定义模型输入
         sent_inputs = Input(shape=(config.max_words,), dtype='float64')
         # 嵌入层
@@ -180,7 +180,7 @@ class Bi_RNN(Classification_Model):
 
 # 多通道CNN模型
 class TextCNN(Classification_Model):
-    def __init__(self, config, model_name, embeddings=None):
+    def __init__(self, config, embeddings=None):
         # 定义模型输入
         sent_inputs = Input(shape=(config.max_words,), dtype='float64')
         # 嵌入层
@@ -205,7 +205,7 @@ class TextCNN(Classification_Model):
         self.config = config
 
 class TextCNNBN(Classification_Model):
-    def __init__(self, config, model_name, embeddings=None):
+    def __init__(self, config, embeddings=None):
         # 定义模型输入
         sent_inputs = Input(shape=(config.max_words,), dtype='float64')
         # 嵌入层
@@ -235,7 +235,7 @@ class TextCNNBN(Classification_Model):
 
 
 class TextInception(Classification_Model):
-    def __init__(self, config, model_name, embeddings=None):
+    def __init__(self, config, embeddings=None):
         # 定义模型输入
         sent_inputs = Input(shape=(config.max_words,), dtype='float64')
         # 嵌入层
@@ -267,7 +267,7 @@ class TextInception(Classification_Model):
         self.config = config
 
 class convRNN(Classification_Model):
-    def __init__(self, config, model_name, embeddings=None):
+    def __init__(self, config, embeddings=None):
         # 定义模型输入
         sent_inputs = Input(shape=(config.max_words,), dtype='float64')
         # 嵌入层
