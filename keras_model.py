@@ -336,7 +336,6 @@ if __name__ == '__main__':
     sent, labels, _ = load_data_and_labels('./data/jd_comp_final_v5.xlsx', ['not_hiden', 'non'], 'word')
 
     # 一些参数（包含训练超参）
-    DATASET = [not_hidden, non]
     SHOW_SAMPLES_CNT = 15
     MAX_WORDS = 100
     MODEL_NAME = 'HAN'
@@ -362,9 +361,6 @@ if __name__ == '__main__':
     PREDICT = False #是否预测新评论
     RAND = False
     
-    # 整理数据格式
-    x, y, s= get_x_y(DATASET, EMBED_TYPE)
-
     if PREDICT:
         df_predict = pd.read_excel('./data/jd_20w_v2.xlsx')
         predict_text = df_predict['segment'].tolist()
@@ -403,9 +399,7 @@ if __name__ == '__main__':
         m_name = './model/' + new_name + '_' + DATE + '.yaml'
         weights_name = './model/' + new_name + '_weights_' + DATE + '.hdf5'
 
-    # 初始化参数设置
-    model_cfg = ModelConfig(MAX_WORDS, MAX_SENTS, EMBED_DIMS, len(vocab), MODEL_NAME, ntags=2)
-    train_cfg = TrainingConfig()
+
     
     # 读入预训练的词向量矩阵
     if PRE_TRAINED and MODEL_NAME != 'one-hot':

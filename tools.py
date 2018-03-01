@@ -76,9 +76,11 @@ class Self_Attention(Layer):
     def build(self, input_shape):
         self.Ws1 = self.add_weight(shape=(input_shape[-1], self.weight_ws1),
                                    initializer=self.kernel_initializer,
+                                   trainable=True,
                                    name='{}_Ws1'.format(self.name))
         self.Ws2 = self.add_weight(shape=(self.weight_ws1, self.weight_ws2),
                                    initializer=self.kernel_initializer,
+                                   trainable=True,
                                    name='{}_Ws2'.format(self.name))
         self.batch_size = input_shape[0]
         super(Self_Attention, self).build(input_shape)

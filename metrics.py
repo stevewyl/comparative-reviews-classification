@@ -1,7 +1,7 @@
 from pathlib import Path
 import numpy as np
 from keras.callbacks import TensorBoard, ModelCheckpoint, EarlyStopping, LearningRateScheduler, Callback
-
+from sklearn.metrics import confusion_matrix
 
 class F1score(Callback):
 
@@ -20,10 +20,7 @@ class F1score(Callback):
             y_pred = self.model.predict_on_batch(data)
             y_pred = np.argmax(y_pred, -1)
 
-            y_pred = [y[:l] for y, l in zip(y_pred, sequence_lengths)]
-            y_true = [y[:l] for y, l in zip(y_true, sequence_lengths)]
-
-            a, b, c = self.count_correct_and_pred(y_true, y_pred, sequence_lengths)
+            a, b, c = self.count_correct_and_pred(y_true, y_pred)
             correct_preds += a
             total_preds += b
             total_correct += c
@@ -33,25 +30,17 @@ class F1score(Callback):
         logs['f1'] = f1
 
     def _calc_f1(self, correct_preds, total_correct, total_preds):
-        p = correct_preds / total_preds if correct_preds > 0 else 0
-        r = correct_preds / total_correct if correct_preds > 0 else 0
-        f1 = 2 * p * r / (p + r) if correct_preds > 0 else 0
+        p = correct_preds / total_preds 
+        r = correct_preds / total_correct 
+        f1 = 2 * p * r / (p + r)
         return f1
 
-    def count_correct_and_pred(self, y_true, y_pred, sequence_lengths):
-        correct_preds, total_correct, total_preds = 0., 0., 0.
-        for lab, lab_pred, length in zip(y_true, y_pred, sequence_lengths):
-            lab = lab[:length]
-            lab_pred = lab_pred[:length]
-
-            lab_chunks = set(get_entities(lab))
-            lab_pred_chunks = set(get_entities(lab_pred))
-
-            correct_preds += len(lab_chunks & lab_pred_chunks)
-            total_preds += len(lab_pred_chunks)
-            total_correct += len(lab_chunks)
+    def count_correct_and_pred(self, y_true, y_pred):
+        confusion_mat = confusion_matrix(y_true, y_pred)
+        correct_preds = np.diagonal(confusion_mat)
+        total_preds = np.sum(confusion_mat.T, -1)
+        total_correct = np.sum(confusion_mat, 1)
         return correct_preds, total_correct, total_preds
-
 
 def get_callbacks(log_dir=None, valid=(), tensorBoard=False, eary_stopping=True):
 

@@ -1,3 +1,6 @@
+# -*- coding: utf-8 -*-
+'''百度AI词向量接口调用'''
+
 from aip import AipNlp
 from utils import read_line_data, save_txt_data
 from keras.preprocessing.text import Tokenizer

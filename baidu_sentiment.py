@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-
 '''百度AI情感分析接口调用'''
 
 from aip import AipNlp

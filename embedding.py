@@ -1,3 +1,6 @@
+# -*- coding: utf-8 -*-
+'''使用gensim训练词向量'''
+
 import pandas as pd
 import numpy as np
 from sklearn.manifold import TSNE
