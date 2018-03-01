@@ -38,7 +38,7 @@ class F1score(Callback):
 
         f1 = self._calc_f1(correct_preds, total_correct, total_preds)
         for i in range(f1.shape[0]):
-            print(i, ' - f1: {:04.2f}\n'.format(f1[i] * 100))
+            print(i, '\n - f1: {:04.2f}\n'.format(f1[i] * 100))
         logs['f1'] = f1
 
     def _calc_f1(self, correct_preds, total_correct, total_preds):
