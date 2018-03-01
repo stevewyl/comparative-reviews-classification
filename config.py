@@ -65,9 +65,14 @@ class ModelConfig(object):
 class TrainingConfig(object):
     """Wrapper class for training hyperparameters."""
 
-    def __init__(self, batch_size=64, optimizer='adam', learning_rate=0.001, lr_decay=0.9,
+    def __init__(self, ntags, batch_size=64, optimizer='adam', learning_rate=0.001, lr_decay=0.9,
                  clip_gradients=5.0, max_epoch=10, early_stopping=True, patience=2,
-                 train_embeddings=False, max_checkpoints_to_keep=5):
+                 train_embeddings=False, max_checkpoints_to_keep=5, loss_func='binary_crossentropy'):
+        
+        # loss function
+        self.loss_func = loss_func
+        if ntags > 2:
+            self.loss_func = 'categorical_crossentropy'
 
         # Batch size
         self.batch_size = batch_size

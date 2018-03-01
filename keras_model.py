@@ -139,13 +139,7 @@ def load_model(model_file, weights_file):
     loaded_model.load_weights(weights_file)
     return loaded_model
 
-# 学习率衰减策略
-def step_decay(epoch):
-    initial_lrate = 0.001
-    drop = 0.5
-    epochs_drop = 2.0
-    lrate = initial_lrate * math.pow(drop, math.floor((1+epoch) / epochs_drop))
-    return lrate
+
 
 # 10折交叉验证
 def cv_train(x, y, batch_size, n_epochs, num_labels, max_words, 
