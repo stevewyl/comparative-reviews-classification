@@ -10,7 +10,7 @@ class ModelConfig(object):
         self.max_sents = max_sents #最多句子数量
         self.embed_size = embed_size #词向量维度
         self.vocab_cnt = vocab_cnt #词语总数
-        self.drop_rate = [0.5,0.3] #丢弃率
+        self.drop_rate = [0.5,0.25] #丢弃率
         self.re_drop = [0.25,0.15] #丢弃率（rnn）
         self.fc_units = [64] #fc层输出维度
         self.rnn_units = [256,128] #rnn层输出维度
@@ -65,10 +65,11 @@ class ModelConfig(object):
 class TrainingConfig(object):
     """Wrapper class for training hyperparameters."""
 
-    def __init__(self, ntags, batch_size=64, optimizer='adam', learning_rate=0.001, lr_decay=0.9,
-                 clip_gradients=5.0, max_epoch=10, early_stopping=True, patience=2,
+    def __init__(self, ntags, model_name, batch_size=64, optimizer='adam', learning_rate=0.001, 
+                 lr_decay=0.9, clip_gradients=5.0, max_epoch=10, early_stopping=True, patience=2,
                  train_embeddings=False, max_checkpoints_to_keep=5, loss_func='binary_crossentropy'):
         
+        self.model_name = model_name
         # loss function
         self.loss_func = loss_func
         if ntags > 2:

@@ -1,21 +1,23 @@
 from keras.optimizers import Adam
 from reader import batch_iter
 from metrics import get_callbacks
-
+import os
 
 class Trainer(object):
 
     def __init__(self, 
                  model, 
                  training_config,
-                 checkpoint_path='./logs/', 
+                 training_mode=False,
+                 checkpoint_path='./logs/',
                  save_path='',
                  lrscheduler=False,
                  tensorboard=False):
 
         self.model = model
         self.training_config = training_config
-        self.checkpoint_path = checkpoint_path
+        self.training_mode = training_mode
+        self.checkpoint_path = os.path.join(checkpoint_path, training_config.model_name)
         self.save_path = save_path
         self.lrscheduler = lrscheduler
         self.tensorboard = tensorboard
@@ -32,13 +34,21 @@ class Trainer(object):
         self.model.model.compile(loss=self.training_config.loss_func,
                                  optimizer=Adam(lr=self.training_config.learning_rate),
                                  metrics=['accuracy'])
-        callbacks = get_callbacks(log_dir=self.checkpoint_path,
-                                  tensorBoard=self.tensorboard,
-                                  LRScheduler=self.lrscheduler,
-                                  early_stopping=self.training_config.early_stopping,
-                                  valid=(valid_steps, valid_batches))
+        if not self.training_mode:
+            callbacks = get_callbacks(log_dir=self.checkpoint_path,
+                                      tensorBoard=self.tensorboard,
+                                      LRScheduler=self.lrscheduler,
+                                      early_stopping=self.training_config.early_stopping,
+                                      valid=(valid_steps, valid_batches))
+        else:
+            callbacks = get_callbacks(LRScheduler=self.lrscheduler,
+                                      early_stopping=self.training_config.early_stopping,
+                                      valid=(valid_steps, valid_batches))
+
         # 训练模型
         self.model.model.fit_generator(generator=train_batches,
                                        steps_per_epoch=train_steps,
                                        epochs=self.training_config.max_epoch,
                                        callbacks=callbacks)
+        
+        return self.model

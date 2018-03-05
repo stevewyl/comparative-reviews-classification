@@ -1,10 +1,11 @@
 '''
 text classification model zoo
+bug: graphviz has not been installed, remove model visualization fuction temporarily
 '''
 import tensorflow as tf
 import numpy as np
-from tools import Attention, Self_Attention
-from tools import get_attention
+from layers import Attention, Self_Attention
+from layers import get_attention
 
 from keras.layers import concatenate
 from keras.models import Sequential, Model, model_from_yaml
@@ -17,7 +18,7 @@ from keras import regularizers
 from keras import backend as K
 from keras.engine.topology import Layer
 from keras import optimizers
-from keras.utils import plot_model
+#from keras.utils import plot_model
 
 
 # 模型初始化
@@ -49,10 +50,11 @@ class Classification_Model(object):
 
     def load_weights(self, filepath):
         self.model.load_weights(filepath=filepath)
-
+    '''
     def plot(self, filepath):
         plot_model(self.model, to_file = filepath)
-
+    '''
+    
 # 嵌入层
 def embedding_layers(config, embeddings=None):
     if embeddings is None:
@@ -76,15 +78,15 @@ class HAN(Classification_Model):
         embed = embedding_layers(config, embeddings)(sent_inputs)
         # 句子编码
         sent_enc = Bidirectional(GRU(config.rnn_units[0], dropout=config.drop_rate[0],
-                                      recurrent_dropout=config.re_drop[0],
-                                      return_sequences=True))(embed)
+                                     recurrent_dropout=config.re_drop[0],
+                                     return_sequences=True))(embed)
         sent_att = Attention(config.att_size[0], name='AttLayer')(sent_enc)
         self.sent_model = Model(sent_inputs, sent_att)
         # 段落编码
         doc_emb = TimeDistributed(self.sent_model)(doc_inputs)
         doc_enc = Bidirectional(GRU(config.rnn_units[1], dropout=config.drop_rate[1],
-                                     recurrent_dropout=config.re_drop[1],
-                                     return_sequences=True))(doc_emb)
+                                    recurrent_dropout=config.re_drop[1],
+                                    return_sequences=True))(doc_emb)
         doc_att = Attention(config.att_size[1], name='AttLayer')(doc_enc)
         # FC
         fc1_drop = Dropout(config.drop_rate[1])(doc_att)

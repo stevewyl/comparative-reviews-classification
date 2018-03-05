@@ -26,7 +26,7 @@ def load_data_and_labels(filename, datasets_name, mode):
 
     print('data load succeed')
     
-    return x, y, hidden_index
+    return x, np.asarray(y), hidden_index
 
 
 # 载入词向量矩阵
