@@ -103,7 +103,7 @@ class HAN(Classification_Model):
 
     # 获取注意力权重
     def get_attentions(self, sequences):
-        return get_attention(self.sent_model, self.model, sequences, self.model_name)
+        return get_attention(self.sent_model, self.model, sequences, self.config.model_name)
 
 # 多注意力网络
 class SelfAtt(Classification_Model):
@@ -129,7 +129,7 @@ class SelfAtt(Classification_Model):
         self.config = config
 
     def get_attentions(self, sequences):
-        return get_attention(self.model, None, sequences, self.model_name)
+        return get_attention(self.model, None, sequences, self.config.model_name)
 
 # 多注意力层次网络
 class MHAN(Classification_Model):
@@ -164,7 +164,9 @@ class MHAN(Classification_Model):
         self.config = config
     
     def get_attentions(self, sequences):
-        return get_attention(self.sent_model, self.model, sequences, self.model_name)
+        # test mode
+        # return self.sent_model, self.model
+        return get_attention(self.sent_model, self.model, sequences, self.config.model_name)
 
 
 # 双向RNN模型

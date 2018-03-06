@@ -119,26 +119,23 @@ class Self_Attention(Layer):
 def cal_att_weights(output, att_w, model_name):
     if model_name == 'HAN':
         eij = np.tanh(np.dot(output[0], att_w[0]) + att_w[1])
+        eij = np.dot(eij, att_w[2])
         eij = eij.reshape((eij.shape[0], eij.shape[1]))
-        ai = np.exp(np.dot(eij, att_w[2]))
+        ai = np.exp(eij)
         weights = ai / np.sum(ai)
         return weights
-    elif model_name == 'HMAN':
+    elif model_name in ['Self_Att', 'MHAN']:
         uit = np.tanh(np.dot(output[0], att_w[0]))
         ait = np.dot(uit, att_w[1])
         ait = np.transpose(ait, axes=[0, 2, 1])
         ai = np.exp(ait)
         weights = np.array([ai[i] / np.sum(ai[i]) for i in range(ai.shape[0])])
         sum_weights = np.sum(weights, axis=-2)
-        return sum_weights
-    elif model_name == 'SelfAtt':
-        pass
-
+        return sum_weights      
+        
 def get_attention(sent_model, doc_model, sequences, model_name, topN=5):
     sent_before_att = K.function([sent_model.layers[0].input, K.learning_phase()],
                                  [sent_model.layers[2].output])
-    doc_before_att = K.function([doc_model.layers[0].input, K.learning_phase()],
-                                [doc_model.layers[2].output])
     cnt_reviews = sequences.shape[0]
 
     # 导出这个句子每个词的权重
@@ -150,10 +147,16 @@ def get_attention(sent_model, doc_model, sequences, model_name, topN=5):
         sent_each_att = sent_each_att.ravel()
         sent_all_att.append(sent_each_att)
     sent_all_att = np.array(sent_all_att)
-    # 找到重要的分句
-    doc_att_w = doc_model.layers[3].get_weights()
-    doc_sub_att = doc_before_att([sequences, 0])
-    doc_att = cal_att_weights(doc_sub_att, doc_att_w, model_name)
+    if model_name in ['HAN', 'MHAN']:
+        doc_before_att = K.function([doc_model.layers[0].input, K.learning_phase()],
+                                    [doc_model.layers[2].output])
+        # 找到重要的分句
+        doc_att_w = doc_model.layers[3].get_weights()
+        doc_sub_att = doc_before_att([sequences, 0])
+        doc_att = cal_att_weights(doc_sub_att, doc_att_w, model_name)
+        return sent_all_att, doc_att
+    elif model_name == 'Self_Att':
+        return sent_all_att
 
     # 找到重要的词
     '''
@@ -164,4 +167,4 @@ def get_attention(sent_model, doc_model, sequences, model_name, topN=5):
     sent_sub_top_max = [sent_att[i].argsort()[-topN:] for i in range(cnt_reviews)]
     actual_word_idx = [key_sub_sents[i][sent_sub_top_max[i]] for i in range(cnt_reviews)] 
     '''
-    return sent_all_att, doc_att
+    
