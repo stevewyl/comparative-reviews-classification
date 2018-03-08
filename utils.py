@@ -365,22 +365,25 @@ def baidu_segment(client, text):
     result = []
     for k,sent in enumerate(text):
         if k % 2000 == 0: print(k)
-        sent = re.sub(' ', '', sent)
-        try:
-            res = client.lexer(text = sent)
-            seg_text = [word['item'] for word in res['items']]
-            seg_text = [word for word in seg_text if word != ' ' and len(word) < 10]
-            if len(seg_text) > 2:
-                result.append(' '.join(seg_text))
-            else:
-                result.append('')
-        except:
-            print('jieba')
-            new_sent = ' '.join(jieba.cut(sent))
-            if len(new_sent) > 2:
-                result.append(new_sent)
-            else:
-                result.append('')
+        if type(sent) == str:
+            try:
+                sent = re.sub(' ', '', sent)
+                res = client.lexer(sent)
+                seg_text = [word['item'] for word in res['items']]
+                seg_text = [word for word in seg_text if word != ' ' and len(word) < 10]
+                if len(seg_text) > 2:
+                    result.append(' '.join(seg_text))
+                else:
+                    result.append('')
+            except:
+                print(k, sent)
+                new_sent = ' '.join(jieba.cut(sent))
+                if len(new_sent) > 2:
+                    result.append(new_sent)
+                else:
+                    result.append('')
+        else:
+            result.append('')
     return result
 
 # 查看分词情况

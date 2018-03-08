@@ -8,7 +8,7 @@ from layers import Attention, Self_Attention
 from layers import get_attention
 
 from keras.layers import concatenate
-from keras.models import Sequential, Model, model_from_yaml
+from keras.models import Sequential, Model, model_from_yaml, load_model
 from keras.layers import Dense, Embedding, Activation, merge, Input, Lambda, Reshape
 from keras.layers import Flatten, TimeDistributed
 from keras.layers import Convolution1D, MaxPool1D, GlobalAveragePooling1D
@@ -20,7 +20,7 @@ from keras.engine.topology import Layer
 from keras import optimizers
 #from keras.utils import plot_model
 
-
+# TODO: Try symbol vector(product word one-hot vector) as input
 # 模型初始化
 class Classification_Model(object):
     def __init__(self, config, embeddings):
@@ -37,13 +37,27 @@ class Classification_Model(object):
         score = self.model.evaluate(X, y, batch_size=1)
         return score
 
-    def save_model(self, filepath):
-        yaml_string  = self.model.to_yaml()
-        with open(filepath, 'w') as f:
-            f.write(yaml_string)
+    def save_model(self, filepath, yaml=False):
+        # yaml
+        if yaml:
+            yaml_string  = self.model.to_yaml()
+            with open(filepath, 'w') as f:
+                f.write(yaml_string)
+        else:
+            self.model.save(filepath)
 
-    def load_model(self, filepath):
-        return model_from_yaml(filepath)
+    def load_model(self, filepath, custom_ob=None, yaml=False):
+        if yaml:
+            yaml_string = open(filepath, 'r').read()
+            if custom_ob:
+                return model_from_yaml(yaml_string, custom_objects=custom_ob)
+            else:
+                return model_from_yaml(yaml_string)
+        else:
+            if custom_ob:
+                return load_model(filepath, custom_objects=custom_ob)
+            else:
+                return load_model(filepath)
 
     def save_weights(self, filepath):
         self.model.save_weights(filepath)
@@ -68,6 +82,28 @@ def embedding_layers(config, embeddings=None):
                           weights=[embeddings])
     return embed
 
+# TODO: complete hybird attention model
+class Hybird(Classification_Model):
+    def __init__(self, config, embeddings=None):
+        word_inputs = Input(shape=(config.max_words,), dtype='float64')
+        char_inputs = Input(shape=(config.max_chars,), dtype='float64')
+
+        embed_word = embedding_layers(config, embeddings[0])(word_inputs)
+        embed_char = embedding_layers(config, embeddings[1])(char_inputs)
+
+        word_cnn_enc = Convolution1D(config.conv_size[0], config.filter_size[1])(embed_word)
+        word_pool = MaxPool1D()(word_cnn_enc)
+        char_cnn_enc = Convolution1D(config.conv_size[1], config.filter_size[2])(embed_char)
+        char_pool = MaxPool1D()(char_cnn_enc)
+
+        word_rnn_enc = Bidirectional(GRU(config.rnn_units[0], dropout=config.drop_rate[0],
+                                     recurrent_dropout=config.re_drop[0],
+                                     return_sequences=True))(embed_word)
+        char_rnn_enc = Bidirectional(GRU(config.rnn_units[0], dropout=config.drop_rate[0],
+                                     recurrent_dropout=config.re_drop[0],
+                                     return_sequences=True))(embed_char)        
+
+
 # 单注意力层次网络
 class HAN(Classification_Model):
     def __init__(self, config, embeddings=None):
@@ -80,14 +116,14 @@ class HAN(Classification_Model):
         sent_enc = Bidirectional(GRU(config.rnn_units[0], dropout=config.drop_rate[0],
                                      recurrent_dropout=config.re_drop[0],
                                      return_sequences=True))(embed)
-        sent_att = Attention(config.att_size[0], name='AttLayer')(sent_enc)
+        sent_att = Attention(config.att_size[0], name='AttLayer_1')(sent_enc)
         self.sent_model = Model(sent_inputs, sent_att)
         # 段落编码
         doc_emb = TimeDistributed(self.sent_model)(doc_inputs)
         doc_enc = Bidirectional(GRU(config.rnn_units[1], dropout=config.drop_rate[1],
                                     recurrent_dropout=config.re_drop[1],
                                     return_sequences=True))(doc_emb)
-        doc_att = Attention(config.att_size[1], name='AttLayer')(doc_enc)
+        doc_att = Attention(config.att_size[1], name='AttLayer_2')(doc_enc)
         # FC
         fc1_drop = Dropout(config.drop_rate[1])(doc_att)
         fc1_bn = BatchNormalization()(fc1_drop)
@@ -116,7 +152,7 @@ class SelfAtt(Classification_Model):
         sent_enc = Bidirectional(GRU(config.rnn_units[0], dropout=config.drop_rate[0],
                                       recurrent_dropout=config.re_drop[0],
                                       return_sequences=True))(embed)
-        sent_att = Self_Attention(config.ws1, config.r, punish=False, name='SelfAttLayer')(sent_enc)
+        sent_att = Self_Attention(config.ws1, config.r, punish=False, name='SelfAttLayer_1')(sent_enc)
         # FC
         flat = Flatten()(sent_att)
         fc = Dense(config.fc_units[0], activation=config.activation_func,
@@ -143,7 +179,7 @@ class MHAN(Classification_Model):
         sent_enc = Bidirectional(GRU(config.rnn_units[0], dropout=config.drop_rate[0],
                                       recurrent_dropout=config.re_drop[0],
                                       return_sequences=True))(embed)
-        sent_att = Self_Attention(config.ws1[0], config.r[0], False, name='SelfAttLayer')(sent_enc)
+        sent_att = Self_Attention(config.ws1[0], config.r[0], False, name='SelfAttLayer_1')(sent_enc)
         sent_flat = Flatten()(sent_att)
         self.sent_model = Model(sent_inputs, sent_flat)
         # 段落编码
@@ -151,7 +187,7 @@ class MHAN(Classification_Model):
         doc_enc = Bidirectional(GRU(config.rnn_units[1], dropout=config.drop_rate[1],
                                     recurrent_dropout=config.re_drop[1],
                                     return_sequences=True))(doc_emb)
-        doc_att = Self_Attention(config.ws1[1], config.r[1], False, name='SelfAttLayer')(doc_enc)
+        doc_att = Self_Attention(config.ws1[1], config.r[1], False, name='SelfAttLayer_2')(doc_enc)
         # FC
         doc_flat = Flatten()(doc_att)
         fc = Dense(config.fc_units[0], activation=config.activation_func,
@@ -164,8 +200,6 @@ class MHAN(Classification_Model):
         self.config = config
     
     def get_attentions(self, sequences):
-        # test mode
-        # return self.sent_model, self.model
         return get_attention(self.sent_model, self.model, sequences, self.config.model_name)
 
 
@@ -175,12 +209,13 @@ class Bi_RNN(Classification_Model):
         # 定义模型输入
         sent_inputs = Input(shape=(config.max_words,), dtype='float64')
         # 嵌入层
-        embed = embedding_layers(config, embeddings)(sent_inputs)   
+        embed = embedding_layers(config, embeddings)(sent_inputs)  
+        # 丢弃层
+        drop = Dropout(config.drop_rate[1])(embed)
         # 句子编码
         sent_enc = Bidirectional(GRU(config.rnn_units[0], 
                                      dropout=config.drop_rate[0],
-                                     recurrent_dropout=config.re_drop[0],
-                                     return_sequences=True))(embed)
+                                     recurrent_dropout=config.re_drop[0]))(drop)
         # 输出
         output = Dense(config.ntags, activation=config.classifier)(sent_enc)
         # 最终模型
@@ -282,9 +317,9 @@ class convRNN(Classification_Model):
         # 嵌入层
         embed = embedding_layers(config, embeddings)(sent_inputs)
         # 句子编码（RNN)
-        forward = GRU(config.rnn_units[0], return_sequences=True,
+        forward = GRU(config.rnn_units[1], return_sequences=True,
                       recurrent_dropout=config.drop_rate[0])(embed)
-        backward = GRU(config.rnn_units[0], return_sequences=True, go_backwards=True, 
+        backward = GRU(config.rnn_units[1], return_sequences=True, go_backwards=True, 
                        recurrent_dropout=config.drop_rate[0])(embed)
         _, last_state_for = Lambda(lambda x: tf.split(x, [config.max_words-1, 1], 1))(forward)
         _, last_state_back = Lambda(lambda x: tf.split(x, [config.max_words-1, 1], 1))(backward)

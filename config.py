@@ -45,7 +45,7 @@ class ModelConfig(object):
             self.filter_size = [[1],[1,3],[3,5],[3]]
         elif model_name == 'convRNN':
             self.filter_size = 3
-        else:
+        elif model_name not in ['Bi_RNN', 'fasttext']:
             print('This model does not exist in model_library.py')
 
     def save(self, file):
