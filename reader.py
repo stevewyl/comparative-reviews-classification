@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import itertools
 import re
+import io
 
 def load_data_and_labels(filename, datasets_name, mode):
     sents = {}
@@ -45,6 +46,16 @@ def load_embeddings(fname, vocab, n_dim):
             embedding_matrix[i] = embedding_vector
 
     return embedding_matrix
+
+# fasttext词向量官方加载方式
+def load_vectors(fname):
+    fin = io.open(fname, 'r', encoding='utf-8', newline='\n', errors='ignore')
+    n, d = map(int, fin.readline().split())
+    data = {}
+    for line in fin:
+        tokens = line.rstrip().split(' ')
+        data[tokens[0]] = map(float, tokens[1:])
+    return data
 
 # batch生成器
 def batch_iter(data, labels, batch_size, shuffle=True, preprocessor=None):

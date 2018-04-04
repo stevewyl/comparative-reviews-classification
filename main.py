@@ -1,14 +1,19 @@
+# -*- coding: utf-8 -*-
+#TODO: 整合为训练类和预测类
+#bug：预测非常慢
+
 import re
 import time
 import pandas as pd
 import numpy as np
 import os
 import sys
+#from optparse import OptionParser
 
 from reader import load_data_and_labels, load_embeddings
 from trainer import Trainer
 from evaluator import Evaluator
-from model_library import TextCNNBN, TextInception, convRNN, HAN, MHAN, SelfAtt, fasttext, Bi_RNN
+from model_library import TextCNNBN, TextInception, convRNN, HAN, MHAN, SelfAtt, fasttext, Bi_RNN, TextCNN
 from config import ModelConfig, TrainingConfig
 from visualization import visualize_attention
 from utils import split_sent, read_line_data
@@ -33,27 +38,39 @@ def get_sequences(tokenizer, train_data, mode, max_length):
         padded_seqs = pad_sequences(word_ids, maxlen=max_length)
         return padded_seqs
 
+def model_build(model_name, model_cfg, embedding):
+    if model_name == 'HAN': return HAN(model_cfg, embedding)
+    elif model_name == 'Self_Att': return SelfAtt(model_cfg, embedding)
+    elif model_name == 'MHAN': return MHAN(model_cfg, embedding)
+    elif model_name == 'convRNN': return convRNN(model_cfg, embedding)
+    elif model_name == 'Bi_RNN': return Bi_RNN(model_cfg, embedding)
+    elif model_name == 'TextCNNBN': return TextCNNBN(model_cfg, embedding)
+    elif model_name == 'TextCNN': return TextCNN(model_cfg, embedding)
+    elif model_name == 'fasttext': return fasttext(model_cfg, embedding)
+    elif model_name == 'Inception': return TextInception(model_cfg, embedding)
+    else:
+        print('Invalid Model Name!')
+
 # 一些控制流程的全局变量
 MAX_WORDS = 100
 MAX_SENTS = 5
-MODEL_NAME = 'HAN'
 CUT_MODE = 'simple'
 TEXT_FORMAT = 'text'
 TEST_SIZE = 0.2
 N_FOLDS = 10
 FOLDS_EPOCHS = 1
 CHECK_HIDDEN = False #是否检查隐性比较句的错误情况
-ATTENTION_V = True #是否可视化attention权重
 PREDICT = False
 RAND = True
 LABEL = 0
 
+# TODO：命令行参数
+#MODEL_NAME = sys.argv[2]
+MODEL_NAME = 'MHAN'
+ATTENTION_V = False #是否可视化attention权重
+
 # 读入数据
 sents, labels, _ = load_data_and_labels('./data/jd_comp_final_v5.xlsx', ['not_hidden', 'non'], 'word')
-if PREDICT:
-    df_predict = pd.read_excel('./data/jd_20w_v2.xlsx')
-    predict_text = df_predict['segment'].tolist()
-    sents = sents + predict_text
 
 # 初始化文本->index
 tokenizer = Tokenizer(filters = '!"#$%&()*+,-./:;<=>?@[\\]^_`{|}~\t\n',
@@ -64,11 +81,15 @@ vocab['UNK'] = 0
 word2idx = {v:k for k,v in vocab.items()}
 
 # 加载词向量文件
+# fasttext基于wiki训练的词向量不好用
 EMBED_FILE = './data/embeddings/word_vectors_256d_20171228_5.txt'
+#EMBED_FILE = 'D:/Embeddings/fasttext/wiki.zh.vec'
 if EMBED_FILE and MODEL_NAME != 'one-hot':
     print('loading word embeddings...')
     EMBED_TYPE = re.findall(r'(?<=/)\w+(?=_v)', EMBED_FILE)[0]
     EMBED_DIMS = int(re.findall(r'(?<=_)\d+(?=d)', EMBED_FILE)[0])
+    #EMBED_TYPE = 'word'
+    #EMBED_DIMS = 300
     embedding_matrix = load_embeddings(EMBED_FILE, vocab, EMBED_DIMS)
 else:
     EMBED_TYPE = 'scratch'
@@ -77,7 +98,7 @@ else:
 
 # 模型及权重保存路径
 DATE = time.strftime('%Y%m%d%H%M',time.localtime(time.time()))
-model_file = './model/' + MODEL_NAME + '_' + DATE + '.yaml'
+model_file = './model/' + MODEL_NAME + '_' + DATE + '.h5'
 weight_file = './model/' + MODEL_NAME + '_weights_' + DATE + '.hdf5'
 
 # HAN族模型需要的文本输入格式
@@ -91,11 +112,9 @@ if MODEL_NAME in ['HAN','MHAN']:
         MAX_SENTS = 6
     N_LIMIT = MAX_WORDS * MAX_SENTS
     sents = [split_sent(sent, MAX_WORDS, MAX_SENTS, CUT_MODE) for sent in sents]
-    if PREDICT:
-        p_x = [split_sent(sent, MAX_WORDS, MAX_SENTS, CUT_MODE) for sent in predict_text]
     TEXT_FORMAT = 'seq'
     new_name = MODEL_NAME + '_' + str(MAX_WORDS) + '_' + str(MAX_SENTS)
-    model_file = './model/' + new_name + '_' + DATE + '.yaml'
+    model_file = './model/' + new_name + '_' + DATE + '.h5'
     weight_file = './model/' + new_name + '_weights_' + DATE + '.hdf5'
 
 # 初始化参数设置
@@ -123,18 +142,20 @@ if ATTENTION_V and MODEL_NAME in ['HAN', 'Self_Att', 'MHAN']:
 def training(data, labels, model_file, model_cfg, train_cfg, cv=False):
     if cv is not True:
         # 初始化模型
-        model = HAN(model_cfg, embedding_matrix)
+        model = model_build(MODEL_NAME, model_cfg, embedding_matrix)
         model.model.summary()
         if model_file:
             #model.plot(os.path.join('./model', MODEL_NAME+'.jpg'))
             model.save_model(model_file)
         print('single training')
-        trainer = Trainer(model, train_cfg)
+        trainer = Trainer(model, train_cfg, tensorboard=True)
         labels = to_categorical(labels)
+        print('data shape:', data.shape)
+        print('label shape:', labels.shape)
         x_train, x_valid, y_train, y_valid = train_test_split(
             data, labels, test_size=TEST_SIZE)
         new_model = trainer.train(x_train, y_train, x_valid, y_valid)
-        if model_cfg.model_name in ['HAN', 'MHAN', 'Self_Att']:
+        if ATTENTION_V and model_cfg.model_name in ['HAN', 'MHAN', 'Self_Att']:
             att_res = new_model.get_attentions(SHOW_TEXT)
             visualize_attention(SHOW_TEXT, att_res, DATE, word2idx, model_cfg.model_name, N_LIMIT, LABEL)
     else:
@@ -144,7 +165,7 @@ def training(data, labels, model_file, model_cfg, train_cfg, cv=False):
         output = {}
         for k, (train_index, valid_index) in enumerate(kf.split(data, labels)):
             print('Fold', k+1)
-            model = HAN(model_cfg, embedding_matrix)
+            model = model_build(MODEL_NAME, model_cfg, embedding_matrix)
             trainer = Trainer(model, train_cfg, True)
             x_train, x_valid = data[train_index], data[valid_index]
             y_train, y_valid= to_categorical(labels[train_index]), to_categorical(labels[valid_index])
@@ -163,5 +184,26 @@ def training(data, labels, model_file, model_cfg, train_cfg, cv=False):
         res_df.columns = ['pre_0', 'recall_0', 'f1_0', 'pre_1', 'recall_1', 'f1_1', 'macro_f1']
         res_df.to_excel('./result/res.xlsx', index=None)
 
+#TODO: 编写预测类
+def predicting(fname, weight_file):
+    print('loading models')
+    model = model_build(MODEL_NAME, model_cfg, embedding_matrix)
+    model.load_weights(weight_file)
+    df_predict = pd.read_excel(fname)
+    df_predict = df_predict[pd.notnull(df_predict['segment'])]
+    p_x = df_predict['segment'].tolist()
+    if MODEL_NAME in ['HAN', 'MHAN']:
+        p_x = [split_sent(sent, MAX_WORDS, MAX_SENTS, CUT_MODE) for sent in p_x]
+    p_x = get_sequences(tokenizer, p_x, TEXT_FORMAT, MAX_WORDS)
+    print('data shape', p_x.shape)
+    print('making predictions...')
+    predicted = model.predict(p_x)
+    df_predict['label_90'] = [1 if p[0] > 0.9 else 0 for p in predicted]
+    #df_predict[df_predict['label_90'] == 1]['cleaned_text'][0:10]
+    df_predict.to_excel('./data/taobao_0_30000_predict.xlsx', index = None)
+
 if __name__ == '__main__':
-    training(data, labels, model_file, model_cfg, train_cfg, sys.argv[1])
+    if PREDICT:
+        predicting('./data/taobao_v2_0_30000.xlsx', './logs/MHAN/model_weights_04_0.8146.h5') 
+    else:
+        training(data, labels, model_file, model_cfg, train_cfg, sys.argv[1])
