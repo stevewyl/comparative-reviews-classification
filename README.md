@@ -19,16 +19,22 @@ The repo has several parts included:
 7. Traditional models script: traditional_ml_models.py
 
 8. Deep Learning models scripts:
-    
     * config.py: model hyperparameters class
     * evaluator.py: model evaluation class
-    * layers.py: DL text classification model used in thesis
+    * layers.py: attention mechanism implementation
     * main.py: the main program for training, more details please see the code comments(the command line version is coming soon)
+    * model_library.py: DL text classification model used in thesis
     * metrics.py: model evaluation class during training
     * reader.py: data generator
-    * tools.py: some useful fuctions and attention mechanism implementation
     * trainer.py: model training class
 
 9. Average embedding model: average_embedding.py
 
 10. Some model results and attention visualization: visualization.py
+
+## TODO_LIST
+
+This repo has not completed. The following steps are:
+
+1. Improve the model prediction modules
+2. Comparative Relations Extraction(ongoing): crf.py for traditional method and plan to use bi-lstm-crf model
